@@ -122,6 +122,12 @@
   .bartrack{height:9px;background:var(--band);border-radius:5px;overflow:hidden}
   .barfill{height:100%;background:linear-gradient(90deg,var(--gold),var(--red));border-radius:5px}
 
+  /* segmented toggle */
+  .seg{display:flex;border:1px solid var(--rule-strong);border-radius:5px;overflow:hidden}
+  .seg button{flex:1;border:none;background:#fff;cursor:pointer;padding:11px;font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft)}
+  .seg button.on-inc2{background:var(--green);color:#fff}
+  .seg button.on-exp2{background:var(--red);color:#fff}
+
   /* reminder banner */
   .reminder{margin:16px 0 0;border:1px solid var(--gold);background:#FBF6EC;border-radius:8px;padding:14px 16px;display:none}
   .reminder.show{display:block}
@@ -222,6 +228,7 @@
     <button data-view="purchases">Purchases</button>
     <button data-view="cards">Cards</button>
     <button data-view="bills">Bills</button>
+    <button data-view="savings">Savings</button>
   </nav>
 
   <div class="monthbar"><label for="monthPick">Month</label><input type="month" id="monthPick" style="width:auto"></div>
@@ -352,6 +359,41 @@
     </div>
     <div id="billsWrap"></div>
   </section>
+
+  <!-- SAVINGS -->
+  <section id="view-savings" style="display:none">
+    <div class="stat3" style="margin-bottom:18px">
+      <div class="stat"><div class="k">Saved this month</div><div class="v inc" id="svMonth">—</div></div>
+      <div class="stat"><div class="k">Savings rate</div><div class="v" id="svRate">—</div></div>
+      <div class="stat"><div class="k">Total saved</div><div class="v inc" id="svTotal">—</div></div>
+    </div>
+    <div class="card">
+      <h2 class="tight">Savings goal</h2>
+      <div class="hsub" style="margin-top:-2px">Aim to set aside <span id="svGoalText">20&ndash;30%</span> of each month's income.</div>
+      <div class="flow">
+        <div class="flowrow"><span>Income this month</span><span class="v" id="svIncome">—</span></div>
+        <div class="flowrow"><span>Goal &middot; <span id="svPctLow">20</span>% of income</span><span class="v" id="svTargetLow">—</span></div>
+        <div class="flowrow"><span>Stretch &middot; <span id="svPctHigh">30</span>% of income</span><span class="v" id="svTargetHigh">—</span></div>
+        <div class="flowrow total"><span>Saved so far this month</span><span class="v left" id="svSaved">—</span></div>
+      </div>
+      <div class="bartrack" style="margin-top:12px;height:11px"><div class="barfill" id="svBar" style="width:0%;background:linear-gradient(90deg,#7FB89A,var(--green))"></div></div>
+      <div class="subnote" id="svStatus"></div>
+    </div>
+    <div class="card">
+      <h2 class="tight">Record savings</h2>
+      <div class="seg" style="margin-bottom:14px">
+        <button id="svAdd" class="on-inc2" data-kind="deposit">Added to savings</button>
+        <button id="svWithdraw" data-kind="withdrawal">Withdrew</button>
+      </div>
+      <div class="grid3" style="margin-bottom:14px">
+        <div class="field"><label for="svAmount">Amount</label><div class="amount-wrap"><span class="cur svCur">₱</span><input type="number" id="svAmount" inputmode="decimal" step="0.01" min="0" placeholder="0.00"></div></div>
+        <div class="field"><label for="svDate">Date</label><input type="date" id="svDate"></div>
+        <div class="field"><label for="svNote">Note (optional)</label><input type="text" id="svNote" maxlength="80" placeholder="e.g. payday transfer"></div>
+      </div>
+      <button class="btn full" id="svSave">Add to savings</button>
+    </div>
+    <div id="savingsWrap"></div>
+  </section>
 </div>
 
 <!-- income/purchase detail modal -->
@@ -370,6 +412,7 @@
   <div class="field" style="margin-bottom:14px"><label for="ownerInput">Your name (shown on the ledger)</label><input type="text" id="ownerInput" maxlength="30" placeholder="e.g. Nikki"></div>
   <div class="field" style="margin-bottom:14px"><label for="ledgerInput">Ledger title</label><input type="text" id="ledgerInput" maxlength="40" placeholder="e.g. Household Ledger"></div>
   <div class="field" style="margin-bottom:14px"><label for="curInput">Currency symbol</label><input type="text" id="curInput" maxlength="4" style="width:90px"></div>
+  <div class="grid2" style="margin-bottom:14px"><div class="field"><label for="goalMinInput">Savings goal min %</label><input type="number" id="goalMinInput" min="0" max="100"></div><div class="field"><label for="goalMaxInput">Savings goal max %</label><input type="number" id="goalMaxInput" min="0" max="100"></div></div>
   <div class="field" style="margin-bottom:14px"><label for="srcInput">Income sources</label><textarea id="srcInput" style="min-height:80px"></textarea></div>
   <div class="field" style="margin-bottom:14px"><label for="walletInput">Cash / e-wallet methods</label><textarea id="walletInput" style="min-height:70px"></textarea></div>
   <div class="field" style="margin-bottom:14px"><label for="catInput">Expense categories</label><textarea id="catInput" style="min-height:80px"></textarea></div>
@@ -425,10 +468,10 @@
     async del(k){ if(!sb||!currentUser) return;
       try{await sb.from("ledger_kv").delete().eq("k",k);}catch(e){console.error(e);} }
   };
-  var K_INC="hl:income:v2",K_PUR="hl:purchases:v2",K_BILL="hl:bills:v2",K_SET="hl:settings:v2",K_CARD="hl:cards:v1",K_INST="hl:installments:v1";
+  var K_INC="hl:income:v2",K_PUR="hl:purchases:v2",K_BILL="hl:bills:v2",K_SET="hl:settings:v2",K_CARD="hl:cards:v1",K_INST="hl:installments:v1",K_SAV="hl:savings:v1";
   var K_RC=function(id){return "hl:receipt:"+id;};
 
-  var DEFAULT_SET={ currency:"₱", ownerName:"Nikki", ledgerName:"Household Ledger",
+  var DEFAULT_SET={ currency:"₱", ownerName:"Nikki", ledgerName:"Household Ledger", savingsGoalMin:20, savingsGoalMax:30,
     sources:["Pinnacle","Fortyfivegames","Ezra 1","Ezra 2","L'Elegance 1","L'Elegance 2","Salary","Solo","Mama","Mico","Other"],
     wallets:["Cash","Maya","GCash","Other"],
     cats:["Grocery","Dining Out","Gas / Fuel","Bills / Utilities","Loan / Installment","House / Hardware","Kids / School","Health","Shopping","Transport","Other"] };
@@ -440,7 +483,7 @@
     {id:"bpi",name:"BPI",cutoffDay:1,dueDay:20,dueOffset:1,paidMonths:{}}
   ];
 
-  var state={income:[],purchases:[],bills:[],cards:[],installments:[],settings:JSON.parse(JSON.stringify(DEFAULT_SET)),month:null,pendingReceipt:null};
+  var state={income:[],purchases:[],bills:[],cards:[],installments:[],savings:[],settings:JSON.parse(JSON.stringify(DEFAULT_SET)),month:null,pendingReceipt:null,svKind:"deposit"};
 
   // ---- helpers ----
   function $(id){return document.getElementById(id);}
@@ -519,6 +562,7 @@
     state.purchases=pur?safeParse(pur,[]):[];
     state.bills=bl?safeParse(bl,[]):[];
     state.installments=ins?safeParse(ins,[]):[];
+    var sav=await Store.get(K_SAV);state.savings=sav?safeParse(sav,[]):[];
     if(st){var s=safeParse(st,null);if(s)state.settings=Object.assign(JSON.parse(JSON.stringify(DEFAULT_SET)),s);}
     if(cd){state.cards=safeParse(cd,[]);} else {state.cards=JSON.parse(JSON.stringify(DEFAULT_CARDS));await saveCards();}
     // migrate old purchase.card -> purchase.method
@@ -531,6 +575,7 @@
   async function saveBills(){await Store.set(K_BILL,JSON.stringify(state.bills));}
   async function saveCards(){await Store.set(K_CARD,JSON.stringify(state.cards));}
   async function saveInst(){await Store.set(K_INST,JSON.stringify(state.installments));}
+  async function saveSav(){await Store.set(K_SAV,JSON.stringify(state.savings));}
   async function saveSet(){await Store.set(K_SET,JSON.stringify(state.settings));}
 
   // ---- summary ----
@@ -616,6 +661,8 @@
     lines.push("Card statements due in "+monthLabel(state.month)+": "+fmt(c.cardDueThisMonth)+" ("+fmt(c.cardPaidThisMonth)+" marked paid).");
     lines.push("Unpaid card balance incl. earlier months: "+fmt(c.cardUnpaidTotal)+".");
     if(c.billsUnpaid>0)lines.push("Unpaid bills this month: "+fmt(c.billsUnpaid)+".");
+    var savedM=savedInMonth(state.month);
+    if(state.savings.length||savedM){var sp=c.income>0?Math.round(savedM/c.income*100):0;lines.push("Saved this month: "+fmt(savedM)+(c.income>0?(" ("+sp+"% of income; goal "+(state.settings.savingsGoalMin!=null?state.settings.savingsGoalMin:20)+"\u2013"+(state.settings.savingsGoalMax!=null?state.settings.savingsGoalMax:30)+"%)"):"")+".");}
     $("commitNote").innerHTML=lines.map(esc).join("<br>");
 
     // category bars
@@ -807,15 +854,15 @@
 
   // backup/restore
   async function exportBackup(){var receipts={};for(var i=0;i<state.purchases.length;i++){var p=state.purchases[i];if(p.hasReceipt){var d=await Store.get(K_RC(p.id));if(d)receipts[p.id]=d;}}
-    var data={app:"household-ledger",version:3,exportedAt:new Date().toISOString(),income:state.income,purchases:state.purchases,bills:state.bills,cards:state.cards,installments:state.installments,settings:state.settings,receipts:receipts};
+    var data={app:"household-ledger",version:4,exportedAt:new Date().toISOString(),income:state.income,purchases:state.purchases,bills:state.bills,cards:state.cards,installments:state.installments,savings:state.savings,settings:state.settings,receipts:receipts};
     var blob=new Blob([JSON.stringify(data)],{type:"application/json"});var url=URL.createObjectURL(blob);var a=document.createElement("a");a.href=url;a.download="household-ledger-backup-"+todayISO()+".json";document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(function(){URL.revokeObjectURL(url);},1000);toast("Backup downloaded");}
   function importBackup(file){var r=new FileReader();r.onload=async function(e){var data;try{data=JSON.parse(e.target.result);}catch(err){toast("That file isn't a valid backup");return;}
     if(!data||(!data.purchases&&!data.income&&!data.bills)){toast("That file isn't a valid backup");return;}
     if(!confirm("Restore this backup? It replaces everything currently in the app."))return;
     for(var i=0;i<state.purchases.length;i++){if(state.purchases[i].hasReceipt)await Store.del(K_RC(state.purchases[i].id));}
-    state.income=data.income||[];state.purchases=data.purchases||[];state.bills=data.bills||[];state.cards=data.cards||[];state.installments=data.installments||[];
+    state.income=data.income||[];state.purchases=data.purchases||[];state.bills=data.bills||[];state.cards=data.cards||[];state.installments=data.installments||[];state.savings=data.savings||[];
     if(data.settings)state.settings=Object.assign(JSON.parse(JSON.stringify(DEFAULT_SET)),data.settings);
-    await saveInc();await savePur();await saveBills();await saveCards();await saveInst();await saveSet();
+    await saveInc();await savePur();await saveBills();await saveCards();await saveInst();await saveSav();await saveSet();
     if(data.receipts){for(var id in data.receipts){if(data.receipts.hasOwnProperty(id))await Store.set(K_RC(id),data.receipts[id]);}}
     applyCurrency();refreshLists();renderHeader();setView("summary");$("setScrim").classList.remove("show");toast("Backup restored");};r.onerror=function(){toast("Couldn't read that file");};r.readAsText(file);}
 
@@ -827,10 +874,52 @@
     var blob=new Blob([csv],{type:"text/csv;charset=utf-8"});var url=URL.createObjectURL(blob);var a=document.createElement("a");a.href=url;a.download="purchases-"+state.month+".csv";document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(function(){URL.revokeObjectURL(url);},1000);}
 
   // views
-  function setView(name){["summary","income","purchases","cards","bills"].forEach(function(v){$("view-"+v).style.display=(v===name)?"block":"none";});
+  // ---- savings ----
+  function savingsMonth(){return state.savings.filter(function(t){return monthOf(t.date)===state.month;});}
+  function savedInMonth(ym){return sum(state.savings.filter(function(t){return monthOf(t.date)===ym;}),function(t){return (t.kind==="withdrawal"?-t.amount:t.amount);});}
+  function totalSaved(){return sum(state.savings,function(t){return (t.kind==="withdrawal"?-t.amount:t.amount);});}
+  function setSvKind(kind){state.svKind=kind;$("svAdd").classList.toggle("on-inc2",kind==="deposit");$("svWithdraw").classList.toggle("on-exp2",kind==="withdrawal");$("svSave").textContent=(kind==="withdrawal")?"Record withdrawal":"Add to savings";}
+  function renderSavings(){
+    var income=sum(incomeMonth(),function(t){return t.amount;});
+    var saved=savedInMonth(state.month);
+    var lowP=(state.settings.savingsGoalMin!=null?state.settings.savingsGoalMin:20);
+    var highP=(state.settings.savingsGoalMax!=null?state.settings.savingsGoalMax:30);
+    var tLow=income*lowP/100, tHigh=income*highP/100, rate=income>0?saved/income*100:0;
+    $("svMonth").textContent=fmt(saved);
+    $("svRate").textContent=income>0?Math.round(rate)+"%":"—";
+    $("svTotal").textContent=fmt(totalSaved());
+    $("svGoalText").textContent=lowP+"\u2013"+highP+"%";
+    $("svPctLow").textContent=lowP;$("svPctHigh").textContent=highP;
+    $("svIncome").textContent=fmt(income);$("svTargetLow").textContent=fmt(tLow);$("svTargetHigh").textContent=fmt(tHigh);$("svSaved").textContent=fmt(saved);
+    var pct=tLow>0?Math.max(0,Math.min(100,Math.round(saved/tLow*100))):0;$("svBar").style.width=pct+"%";
+    var status;
+    if(income<=0)status="Add this month's income to see your goal.";
+    else if(saved<=0)status="Nothing set aside yet this month. Goal: "+fmt(tLow)+" to "+fmt(tHigh)+".";
+    else if(rate>=highP)status="Above your "+highP+"% goal. You saved "+Math.round(rate)+"% of income.";
+    else if(rate>=lowP)status="On track. You saved "+Math.round(rate)+"% of income, within your "+lowP+"\u2013"+highP+"% goal.";
+    else status="Below your "+lowP+"% goal. Set aside "+fmt(tLow-saved)+" more to reach "+lowP+"%.";
+    $("svStatus").textContent=status;
+    var wrap=$("savingsWrap");wrap.innerHTML="";
+    var list=savingsMonth().slice().sort(function(a,b){return b.date.localeCompare(a.date)||b.createdAt-a.createdAt;});
+    var head=document.createElement("div");head.className="dayhead";head.style.marginTop="22px";
+    head.innerHTML='<span>Savings &middot; '+esc(monthLabel(state.month))+'</span><span class="daytotal">'+fmt(saved)+'</span>';wrap.appendChild(head);
+    if(!list.length){var e=document.createElement("div");e.className="empty";e.innerHTML='<div class="big">No savings recorded</div>Add a deposit above to start tracking.';wrap.appendChild(e);return;}
+    list.forEach(function(t){var dep=t.kind!=="withdrawal";var d=document.createElement("div");d.className="item";
+      d.innerHTML='<div class="mark '+(dep?"inc":"exp")+'"></div><div class="body"><div class="cat">'+(dep?"Added to savings":"Withdrew")+'</div><div class="meta">'+esc(dayLabel(t.date))+(t.note?' &middot; '+esc(t.note):'')+'</div></div><div class="val '+(dep?"inc":"exp")+'">'+(dep?"+ ":"\u2212 ")+fmt(t.amount).replace(/^-/,'')+'</div><button class="del" data-savdel="'+t.id+'" title="Delete" style="border:none;background:none;cursor:pointer;color:var(--ink-soft);font-size:18px;margin-left:8px">&times;</button>';
+      wrap.appendChild(d);});
+    wrap.querySelectorAll("[data-savdel]").forEach(function(b){b.addEventListener("click",function(ev){ev.stopPropagation();deleteSavings(b.dataset.savdel);});});
+  }
+  async function saveSavings(){
+    var amt=parseFloat($("svAmount").value);if(!(amt>0)){toast("Enter an amount above zero");$("svAmount").focus();return;}
+    state.savings.push({id:uid(),kind:state.svKind||"deposit",amount:amt,date:$("svDate").value||todayISO(),note:$("svNote").value.trim(),createdAt:Date.now()});
+    await saveSav();$("svAmount").value="";$("svNote").value="";renderSavings();renderHeader();toast(state.svKind==="withdrawal"?"Withdrawal recorded":"Added to savings");
+  }
+  async function deleteSavings(id){var t=state.savings.find(function(x){return x.id===id;});if(!t)return;if(!confirm("Delete this savings entry?"))return;state.savings=state.savings.filter(function(x){return x.id!==id;});await saveSav();renderSavings();renderHeader();toast("Deleted");}
+
+  function setView(name){["summary","income","purchases","cards","bills","savings"].forEach(function(v){$("view-"+v).style.display=(v===name)?"block":"none";});
     document.querySelectorAll("nav.tabs button").forEach(function(b){b.classList.toggle("active",b.dataset.view===name);});
-    if(name==="summary")renderSummary();if(name==="income")renderIncome();if(name==="purchases")renderPurchases();if(name==="cards")renderCards();if(name==="bills")renderBills();}
-  function applyCurrency(){var c=cur();["incCur","purCur","billCur","instCur"].forEach(function(cl){document.querySelectorAll("."+cl).forEach(function(e){e.textContent=c;});});}
+    if(name==="summary")renderSummary();if(name==="income")renderIncome();if(name==="purchases")renderPurchases();if(name==="cards")renderCards();if(name==="bills")renderBills();if(name==="savings")renderSavings();}
+  function applyCurrency(){var c=cur();["incCur","purCur","billCur","instCur","svCur"].forEach(function(cl){document.querySelectorAll("."+cl).forEach(function(e){e.textContent=c;});});}
   function refreshLists(){
     fillSelect($("incSource"),state.settings.sources,$("incSource").value);
     fillSelect($("purMethod"),methodOptions(),$("purMethod").value);
@@ -848,6 +937,9 @@
     $("incSave").addEventListener("click",saveIncome);$("incCancel").addEventListener("click",resetIncome);
     $("purSave").addEventListener("click",savePurchase);$("purCancel").addEventListener("click",resetPurchase);
     $("billSave").addEventListener("click",saveBill);
+    $("svAdd").addEventListener("click",function(){setSvKind("deposit");});
+    $("svWithdraw").addEventListener("click",function(){setSvKind("withdrawal");});
+    $("svSave").addEventListener("click",saveSavings);
     $("cardSave").addEventListener("click",saveCard);$("cardCancel").addEventListener("click",resetCardForm);
     $("instSave").addEventListener("click",saveInst2);$("instCancel").addEventListener("click",resetInstForm);
     $("receiptDrop").addEventListener("click",function(){$("receiptInput").click();});
@@ -856,20 +948,22 @@
     $("exportBtn").addEventListener("click",exportCSV);
     $("detailX").addEventListener("click",closeDetail);$("detailScrim").addEventListener("click",function(e){if(e.target===$("detailScrim"))closeDetail();});
     $("dDelete").addEventListener("click",deleteDetail);$("dEdit").addEventListener("click",editDetail);
-    $("gearBtn").addEventListener("click",function(){$("ownerInput").value=state.settings.ownerName||"Nikki";$("ledgerInput").value=state.settings.ledgerName||"Household Ledger";$("curInput").value=state.settings.currency;$("srcInput").value=state.settings.sources.join("\n");$("walletInput").value=state.settings.wallets.join("\n");$("catInput").value=state.settings.cats.join("\n");$("setScrim").classList.add("show");});
+    $("gearBtn").addEventListener("click",function(){$("ownerInput").value=state.settings.ownerName||"Nikki";$("ledgerInput").value=state.settings.ledgerName||"Household Ledger";$("curInput").value=state.settings.currency;$("goalMinInput").value=(state.settings.savingsGoalMin!=null?state.settings.savingsGoalMin:20);$("goalMaxInput").value=(state.settings.savingsGoalMax!=null?state.settings.savingsGoalMax:30);$("srcInput").value=state.settings.sources.join("\n");$("walletInput").value=state.settings.wallets.join("\n");$("catInput").value=state.settings.cats.join("\n");$("setScrim").classList.add("show");});
     $("setX").addEventListener("click",function(){$("setScrim").classList.remove("show");});
     $("setScrim").addEventListener("click",function(e){if(e.target===$("setScrim"))$("setScrim").classList.remove("show");});
     $("setSave").addEventListener("click",async function(){function lines(v){return v.split(/[\n,]/).map(function(s){return s.trim();}).filter(Boolean);}
       state.settings.ownerName=$("ownerInput").value.trim()||"Nikki";state.settings.ledgerName=$("ledgerInput").value.trim()||"Household Ledger";
       state.settings.currency=$("curInput").value.trim()||"₱";var s=lines($("srcInput").value),w=lines($("walletInput").value),ca=lines($("catInput").value);
+      var gmin=parseFloat($("goalMinInput").value),gmax=parseFloat($("goalMaxInput").value);
+      if(!isNaN(gmin)&&gmin>=0)state.settings.savingsGoalMin=gmin;if(!isNaN(gmax)&&gmax>=0)state.settings.savingsGoalMax=gmax;
       if(s.length)state.settings.sources=s;if(w.length)state.settings.wallets=w;if(ca.length)state.settings.cats=ca;
-      await saveSet();renderBrand();applyCurrency();refreshLists();$("setScrim").classList.remove("show");renderHeader();toast("Settings saved");});
+      await saveSet();renderBrand();applyCurrency();refreshLists();renderSavings();$("setScrim").classList.remove("show");renderHeader();toast("Settings saved");});
     $("backupBtn").addEventListener("click",exportBackup);$("restoreBtn").addEventListener("click",function(){$("restoreInput").click();});
     $("restoreInput").addEventListener("change",function(e){var f=e.target.files[0];if(f)importBackup(f);e.target.value="";});
-    $("clearAll").addEventListener("click",async function(){if(!confirm("Erase all income, purchases, cards, installments, bills and receipts? This cannot be undone."))return;
+    $("clearAll").addEventListener("click",async function(){if(!confirm("Erase all income, purchases, cards, installments, bills, savings and receipts? This cannot be undone."))return;
       for(var i=0;i<state.purchases.length;i++){if(state.purchases[i].hasReceipt)await Store.del(K_RC(state.purchases[i].id));}
-      state.income=[];state.purchases=[];state.bills=[];state.installments=[];state.cards=JSON.parse(JSON.stringify(DEFAULT_CARDS));
-      await saveInc();await savePur();await saveBills();await saveInst();await saveCards();$("setScrim").classList.remove("show");refreshLists();renderHeader();setView("summary");toast("All records erased");});
+      state.income=[];state.purchases=[];state.bills=[];state.installments=[];state.savings=[];state.cards=JSON.parse(JSON.stringify(DEFAULT_CARDS));
+      await saveInc();await savePur();await saveBills();await saveInst();await saveSav();await saveCards();$("setScrim").classList.remove("show");refreshLists();renderHeader();setView("summary");toast("All records erased");});
     document.addEventListener("keydown",function(e){if(e.key==="Escape"){closeDetail();$("setScrim").classList.remove("show");}});
   }
 
@@ -877,7 +971,7 @@
   async function enterApp(){
     await loadAll();
     state.month=thisMonth();
-    $("monthPick").value=state.month;$("incDate").value=todayISO();$("purDate").value=todayISO();$("instStart").value=state.month;
+    $("monthPick").value=state.month;$("incDate").value=todayISO();$("purDate").value=todayISO();$("instStart").value=state.month;$("svDate").value=todayISO();setSvKind("deposit");
     applyCurrency();renderBrand();refreshLists();renderHeader();renderSummary();
     var em=$("userEmail");if(em&&currentUser)em.textContent=currentUser.email||"";
   }
