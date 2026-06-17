@@ -164,6 +164,14 @@
   .bill .del:hover{color:var(--red)}
 
   .cardbox{border:1px solid var(--rule-strong);border-radius:8px;padding:16px;margin-bottom:12px;background:#fff}
+  .stmthead{cursor:pointer}
+  .chev{display:inline-block;margin-left:7px;color:var(--ink-soft);font-size:10px}
+  .stmtdetail{padding:2px 0 12px 36px}
+  .stmtdetail .ln{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 10px;background:var(--paper);border-radius:6px;margin:5px 0}
+  .stmtdetail .lnname{font-size:13px;color:var(--ink)}
+  .stmtdetail .lnsub{font-size:11px;color:var(--ink-soft);font-family:var(--mono);margin-top:1px}
+  .stmtdetail .lnamt{font-family:var(--mono);font-size:13px;white-space:nowrap}
+  .stmtdetail .lnempty{font-size:12px;color:var(--ink-soft);padding:6px 10px}
   .cardbox .ctop{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
   .cardbox .cname{font-family:var(--serif);font-size:18px;font-weight:600}
   .cardbox .ccycle{font-family:var(--mono);font-size:11px;color:var(--ink-soft);margin-top:2px}
@@ -347,10 +355,12 @@
         </div>
         <div class="hsub" style="margin-top:-4px;margin-bottom:14px">Enter the monthly amount your bank gave you; it already includes interest. The optional item price lets the app show how much interest you're paying.</div>
       </div>
-      <div class="grid2" style="margin-bottom:16px">
+      <div class="grid3" style="margin-bottom:6px">
+        <div class="field"><label for="instAvail">Date availed (optional)</label><input type="date" id="instAvail"></div>
         <div class="field"><label for="instStart">First payment month</label><input type="month" id="instStart"></div>
         <div class="field"><label for="instCat">Category</label><select id="instCat"></select></div>
       </div>
+      <div class="hsub" style="margin-bottom:16px">Date availed is when you bought it. First payment month is when the first monthly charge hits the card; banks often bill it the month after.</div>
       <input type="hidden" id="instEditId">
       <div class="row-actions"><button class="btn full" id="instSave">Add installment</button><button class="btn ghost" id="instCancel" style="display:none">Cancel</button></div>
     </div>
@@ -501,7 +511,7 @@
     {id:"bpi",name:"BPI",cutoffDay:1,dueDay:20,dueOffset:1,paidMonths:{}}
   ];
 
-  var state={income:[],purchases:[],bills:[],cards:[],installments:[],savings:[],settings:JSON.parse(JSON.stringify(DEFAULT_SET)),month:null,pendingReceipt:null,svKind:"deposit",cardView:"due"};
+  var state={income:[],purchases:[],bills:[],cards:[],installments:[],savings:[],settings:JSON.parse(JSON.stringify(DEFAULT_SET)),month:null,pendingReceipt:null,svKind:"deposit",cardView:"due",cardExp:{}};
 
   // ---- helpers ----
   function $(id){return document.getElementById(id);}
@@ -798,6 +808,15 @@
     if(card.dueMode==="afterCutoff"){var cands=[ym,addMonths(ym,-1),addMonths(ym,1),addMonths(ym,-2)];for(var i=0;i<cands.length;i++){if(monthOf(stmtDueDateForClose(card,cands[i]))===ym)return cands[i];}return ym;}
     return addMonths(ym,-(card.dueOffset||0));
   }
+  function monthsBetween(a,b){var pa=a.split("-"),pb=b.split("-");return (+pb[0]-+pa[0])*12+(+pb[1]-+pa[1]);}
+  function cardCycleItems(card,closeYM){
+    var items=[];
+    state.purchases.forEach(function(p){if(p.method===card.name&&chargeCloseYM(card,p.date)===closeYM)items.push({label:p.item||"Purchase",sub:prettyDate(p.date)+(p.category?(" \u00b7 "+p.category):""),amount:p.amount});});
+    state.installments.forEach(function(p){if(p.cardName===card.name&&instActive(p,closeYM)){var idx=monthsBetween(p.startMonth,closeYM)+1;items.push({label:p.name+" (installment)",sub:"payment "+idx+" of "+p.months+(p.availDate?(" \u00b7 availed "+prettyDate(p.availDate)):""),amount:instMonthly(p)});}});
+    state.bills.forEach(function(b){if(b.method===card.name&&billActiveInMonth(b,closeYM))items.push({label:b.name+" (bill)",sub:"recurring",amount:b.amount});});
+    items.sort(function(a,b){return b.amount-a.amount;});
+    return items;
+  }
   function prettyDate(iso){return new Date(iso+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"});}
   function cardStatementsWindow(card){
     var out=[];var m=addMonths(state.month,-3),end=addMonths(state.month,3),guard=0;
@@ -823,10 +842,14 @@
         var pLabel=byCut?('Cutoff '+prettyDate(s.closeDate)):('Due '+prettyDate(s.dueDate));
         var sec=byCut?('due '+prettyDate(s.dueDate)):('closed '+prettyDate(s.closeDate));
         var isCur=byCut?(s.closeYM===state.month):(s.dueYM===state.month);
-        return '<div class="bill"'+(isCur?' style="background:var(--band)"':'')+'><div class="due"><div class="d">'+(+pDate.slice(8,10))+'</div><div class="m">'+esc(monthShort(pDate))+'</div></div>'+
-          '<div class="body"><div class="name">'+esc(pLabel)+'<span class="badge '+s.status.cls+'">'+esc(s.status.txt)+'</span></div><div class="meta">'+esc(sec)+'</div></div>'+
+        var key=card.id+"::"+s.closeYM;var open=!!state.cardExp[key];
+        var items=cardCycleItems(card,s.closeYM);
+        var detail=items.length?items.map(function(it){return '<div class="ln"><div><div class="lnname">'+esc(it.label)+'</div><div class="lnsub">'+esc(it.sub)+'</div></div><div class="lnamt">'+fmt(it.amount)+'</div></div>';}).join(""):'<div class="lnempty">No items in this statement.</div>';
+        return '<div class="bill stmthead" data-toggle="'+key+'"'+(isCur?' style="background:var(--band)"':'')+'><div class="due"><div class="d">'+(+pDate.slice(8,10))+'</div><div class="m">'+esc(monthShort(pDate))+'</div></div>'+
+          '<div class="body"><div class="name">'+esc(pLabel)+'<span class="badge '+s.status.cls+'">'+esc(s.status.txt)+'</span><span class="chev">'+(open?'\u25be':'\u25b8')+'</span></div><div class="meta">'+esc(sec)+' &middot; '+items.length+' item'+(items.length===1?'':'s')+'</div></div>'+
           '<div class="amt">'+fmt(s.amount)+'</div>'+
-          '<button class="paidtoggle '+(s.paid?"on":"")+'" data-cardpaid="'+card.id+'" data-ym="'+s.closeYM+'">'+(s.paid?"Paid":"Mark paid")+'</button></div>';
+          '<button class="paidtoggle '+(s.paid?"on":"")+'" data-cardpaid="'+card.id+'" data-ym="'+s.closeYM+'">'+(s.paid?"Paid":"Mark paid")+'</button></div>'+
+          '<div class="stmtdetail" style="display:'+(open?'block':'none')+'">'+detail+'</div>';
       }).join("");
       var box=document.createElement("div");box.className="cardbox";
       box.innerHTML='<div class="ctop"><div><div class="cname">'+esc(card.name)+'</div><div class="ccycle">'+cyc+'</div></div><button class="del" data-del="'+card.id+'" title="Delete card" style="font-size:20px;background:none;border:none;cursor:pointer;color:var(--ink-soft)">&times;</button></div>'+
@@ -838,9 +861,10 @@
     });
     $("cvDue").addEventListener("click",function(){state.cardView="due";renderCards();});
     $("cvCut").addEventListener("click",function(){state.cardView="cutoff";renderCards();});
-    wrap.querySelectorAll("[data-cardpaid]").forEach(function(b){b.addEventListener("click",function(){toggleCardPaidYM(b.dataset.cardpaid,b.dataset.ym);});});
-    wrap.querySelectorAll("[data-del]").forEach(function(b){b.addEventListener("click",function(){deleteCard(b.dataset.del);});});
-    wrap.querySelectorAll("[data-edit]").forEach(function(b){b.addEventListener("click",function(){editCard(b.dataset.edit);});});
+    wrap.querySelectorAll("[data-toggle]").forEach(function(h){h.addEventListener("click",function(){var k=h.dataset.toggle;state.cardExp[k]=!state.cardExp[k];renderCards();});});
+    wrap.querySelectorAll("[data-cardpaid]").forEach(function(b){b.addEventListener("click",function(ev){ev.stopPropagation();toggleCardPaidYM(b.dataset.cardpaid,b.dataset.ym);});});
+    wrap.querySelectorAll("[data-del]").forEach(function(b){b.addEventListener("click",function(ev){ev.stopPropagation();deleteCard(b.dataset.del);});});
+    wrap.querySelectorAll("[data-edit]").forEach(function(b){b.addEventListener("click",function(ev){ev.stopPropagation();editCard(b.dataset.edit);});});
     renderInstallments();
   }
   async function toggleCardPaidYM(id,ym){var c=state.cards.find(function(x){return x.id===id;});if(!c)return;c.paidMonths=c.paidMonths||{};if(c.paidMonths[ym])delete c.paidMonths[ym];else c.paidMonths[ym]=true;await saveCards();renderCards();renderHeader();}
@@ -890,15 +914,29 @@
       var box=document.createElement("div");box.className="bill";
       var interest=(p.principal!=null&&p.total>p.principal)?(p.total-p.principal):0;
       var metaExtra=interest>0?(' &middot; incl. '+fmt(interest)+' interest'):'';
-      box.innerHTML='<div class="body"><div class="name">'+esc(p.name)+status+'</div><div class="meta">'+esc(p.cardName)+' &middot; '+fmt(instMonthly(p))+'/mo &middot; '+fmt(p.total)+' over '+p.months+' mo'+metaExtra+'</div></div><div class="amt">'+(active?fmt(instMonthly(p)):'<span style="color:var(--ink-soft)">—</span>')+'</div><button class="del" data-instdel="'+p.id+'" title="Delete">&times;</button>';
+      var availExtra=p.availDate?(' &middot; availed '+prettyDate(p.availDate)):'';
+      box.innerHTML='<div class="body"><div class="name">'+esc(p.name)+status+'</div><div class="meta">'+esc(p.cardName)+' &middot; '+fmt(instMonthly(p))+'/mo &middot; '+fmt(p.total)+' over '+p.months+' mo'+metaExtra+availExtra+'</div></div><div class="amt">'+(active?fmt(instMonthly(p)):'<span style="color:var(--ink-soft)">—</span>')+'</div><button class="miniedit" data-insted="'+p.id+'" style="margin-right:4px">Edit</button><button class="del" data-instdel="'+p.id+'" title="Delete">&times;</button>';
       wrap.appendChild(box);
     });
+    wrap.querySelectorAll("[data-insted]").forEach(function(b){b.addEventListener("click",function(){editInst(b.dataset.insted);});});
     wrap.querySelectorAll("[data-instdel]").forEach(function(b){b.addEventListener("click",function(){deleteInst(b.dataset.instdel);});});
   }
+  function editInst(id){
+    var p=state.installments.find(function(x){return x.id===id;});if(!p)return;
+    $("instName").value=p.name;$("instCard").value=p.cardName;$("instCat").value=p.category||"";
+    $("instMonths").value=p.months;$("instStart").value=p.startMonth;$("instAvail").value=p.availDate||"";
+    var mode=p.mode||((p.principal!=null&&Math.abs(p.total-p.principal)<0.005)?"zero":(p.monthly!=null?"interest":"zero"));
+    $("instInterest").value=mode;instInterestToggle();
+    if(mode==="interest"){$("instMonthlyAmt").value=p.monthly;$("instPrice").value=(p.principal!=null?p.principal:"");$("instTotal").value="";}
+    else{$("instTotal").value=p.total;$("instMonthlyAmt").value="";$("instPrice").value="";}
+    $("instEditId").value=id;$("instSave").textContent="Update installment";$("instCancel").style.display="";$("instTitle").textContent="Edit installment plan";
+    $("instTitle").scrollIntoView({behavior:"smooth",block:"start"});
+  }
   function instInterestToggle(){var m=$("instInterest").value;$("instZeroWrap").style.display=(m==="zero")?"":"none";$("instInterestWrap").style.display=(m==="interest")?"":"none";}
-  function resetInstForm(){$("instName").value="";$("instTotal").value="";$("instMonthlyAmt").value="";$("instPrice").value="";$("instMonths").value="";$("instInterest").value="zero";$("instStart").value=state.month;$("instEditId").value="";instInterestToggle();}
+  function resetInstForm(){$("instName").value="";$("instTotal").value="";$("instMonthlyAmt").value="";$("instPrice").value="";$("instMonths").value="";$("instInterest").value="zero";$("instStart").value=state.month;$("instAvail").value="";$("instEditId").value="";$("instSave").textContent="Add installment";$("instCancel").style.display="none";$("instTitle").textContent="Add an installment plan";instInterestToggle();}
   async function saveInst2(){
-    var name=$("instName").value.trim();var months=parseInt($("instMonths").value,10);var start=$("instStart").value;var mode=$("instInterest").value;
+    var editId=$("instEditId").value;
+    var name=$("instName").value.trim();var months=parseInt($("instMonths").value,10);var start=$("instStart").value;var mode=$("instInterest").value;var avail=$("instAvail").value||null;
     if(!name){toast("Name the installment");return;}
     if(!(months>=1)){toast("Enter the number of months");return;}
     if(!start){toast("Pick the first payment month");return;}
@@ -914,8 +952,13 @@
       if(!(total>0)){toast("Enter the total price");return;}
       monthly=total/months;principal=total;
     }
-    state.installments.push({id:uid(),name:name,cardName:$("instCard").value,monthly:monthly,total:total,principal:principal,months:months,startMonth:start,category:$("instCat").value,createdAt:Date.now()});
-    await saveInst();resetInstForm();renderCards();renderHeader();toast("Installment added");
+    if(editId){
+      var p=state.installments.find(function(x){return x.id===editId;});
+      if(p){p.name=name;p.cardName=$("instCard").value;p.monthly=monthly;p.total=total;p.principal=principal;p.months=months;p.startMonth=start;p.category=$("instCat").value;p.availDate=avail;p.mode=mode;}
+    } else {
+      state.installments.push({id:uid(),name:name,cardName:$("instCard").value,monthly:monthly,total:total,principal:principal,months:months,startMonth:start,category:$("instCat").value,availDate:avail,mode:mode,createdAt:Date.now()});
+    }
+    await saveInst();resetInstForm();renderCards();renderHeader();toast(editId?"Installment updated":"Installment added");
   }
   async function deleteInst(id){var p=state.installments.find(function(x){return x.id===id;});if(!p)return;if(!confirm('Delete the installment "'+p.name+'"?'))return;state.installments=state.installments.filter(function(x){return x.id!==id;});await saveInst();renderCards();renderHeader();toast("Installment deleted");}
 
