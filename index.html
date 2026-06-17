@@ -501,7 +501,7 @@
     {id:"bpi",name:"BPI",cutoffDay:1,dueDay:20,dueOffset:1,paidMonths:{}}
   ];
 
-  var state={income:[],purchases:[],bills:[],cards:[],installments:[],savings:[],settings:JSON.parse(JSON.stringify(DEFAULT_SET)),month:null,pendingReceipt:null,svKind:"deposit"};
+  var state={income:[],purchases:[],bills:[],cards:[],installments:[],savings:[],settings:JSON.parse(JSON.stringify(DEFAULT_SET)),month:null,pendingReceipt:null,svKind:"deposit",cardView:"due"};
 
   // ---- helpers ----
   function $(id){return document.getElementById(id);}
@@ -788,36 +788,43 @@
   function prettyDate(iso){return new Date(iso+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"});}
   function cardStatementsWindow(card){
     var out=[];var m=addMonths(state.month,-3),end=addMonths(state.month,3),guard=0;
-    while(m<=end&&guard<24){var amt=cardStatementDue(card,m);
-      if(amt>0||m===state.month){var dd=cardDueDateISO(card,m);var closeYM=cardCloseYMForDue(card,m);var cdate=cutoffDateISO(card,closeYM);var paid=!!(card.paidMonths&&card.paidMonths[m]);
-        out.push({dueYM:m,dueDate:dd,closeDate:cdate,amount:amt,paid:paid,status:billStatus(dd,paid)});}
+    while(m<=end&&guard<24){var amt=cardStatementDue(card,m);var closeYM=cardCloseYMForDue(card,m);
+      if(amt>0||m===state.month||closeYM===state.month){var dd=cardDueDateISO(card,m);var cdate=cutoffDateISO(card,closeYM);var paid=!!(card.paidMonths&&card.paidMonths[m]);
+        out.push({dueYM:m,closeYM:closeYM,dueDate:dd,closeDate:cdate,amount:amt,paid:paid,status:billStatus(dd,paid)});}
       m=addMonths(m,1);guard++;}
     return out;
   }
   function renderCards(){
     var wrap=$("cardsWrap");wrap.innerHTML="";
-    var head=document.createElement("div");head.className="dayhead";head.style.margin="6px 0 14px";
-    head.innerHTML='<span>Your cards</span><span></span>';wrap.appendChild(head);
+    var byCut=(state.cardView==="cutoff");
+    var ctrl=document.createElement("div");ctrl.style.cssText="display:flex;gap:10px;align-items:center;margin:6px 0 14px;flex-wrap:wrap";
+    ctrl.innerHTML='<span style="font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft)">View by</span><div class="seg" style="width:auto"><button id="cvDue" class="'+(byCut?"":"on-inc2")+'" style="flex:0 0 auto;padding:7px 14px">Due date</button><button id="cvCut" class="'+(byCut?"on-inc2":"")+'" style="flex:0 0 auto;padding:7px 14px">Cutoff month</button></div>';
+    wrap.appendChild(ctrl);
     if(!state.cards.length){var e=document.createElement("div");e.className="empty";e.innerHTML='<div class="big">No cards yet</div>Add a credit card above to track its statements.';wrap.appendChild(e);}
     state.cards.forEach(function(card){
       var unpaid=cardUnpaid(card,state.month);
       var cyc=(card.dueMode==="afterCutoff")?('Cuts day '+card.cutoffDay+' &middot; due '+(card.dueDays||0)+' days after cutoff'):('Cuts day '+card.cutoffDay+' &middot; due day '+card.dueDay+' '+(card.dueOffset?'(next month)':'(same month)'));
       var stmts=cardStatementsWindow(card);
       var rows=stmts.map(function(s){
-        var cur2=(s.dueYM===state.month)?' style="background:var(--band)"':'';
-        return '<div class="bill"'+cur2+'><div class="due"><div class="d">'+(+s.dueDate.slice(8,10))+'</div><div class="m">'+esc(monthShort(s.dueDate))+'</div></div>'+
-          '<div class="body"><div class="name">Due '+esc(prettyDate(s.dueDate))+'<span class="badge '+s.status.cls+'">'+esc(s.status.txt)+'</span></div><div class="meta">closed '+esc(prettyDate(s.closeDate))+'</div></div>'+
+        var pDate=byCut?s.closeDate:s.dueDate;
+        var pLabel=byCut?('Cutoff '+prettyDate(s.closeDate)):('Due '+prettyDate(s.dueDate));
+        var sec=byCut?('due '+prettyDate(s.dueDate)):('closed '+prettyDate(s.closeDate));
+        var isCur=byCut?(s.closeYM===state.month):(s.dueYM===state.month);
+        return '<div class="bill"'+(isCur?' style="background:var(--band)"':'')+'><div class="due"><div class="d">'+(+pDate.slice(8,10))+'</div><div class="m">'+esc(monthShort(pDate))+'</div></div>'+
+          '<div class="body"><div class="name">'+esc(pLabel)+'<span class="badge '+s.status.cls+'">'+esc(s.status.txt)+'</span></div><div class="meta">'+esc(sec)+'</div></div>'+
           '<div class="amt">'+fmt(s.amount)+'</div>'+
           '<button class="paidtoggle '+(s.paid?"on":"")+'" data-cardpaid="'+card.id+'" data-ym="'+s.dueYM+'">'+(s.paid?"Paid":"Mark paid")+'</button></div>';
       }).join("");
       var box=document.createElement("div");box.className="cardbox";
       box.innerHTML='<div class="ctop"><div><div class="cname">'+esc(card.name)+'</div><div class="ccycle">'+cyc+'</div></div><button class="del" data-del="'+card.id+'" title="Delete card" style="font-size:20px;background:none;border:none;cursor:pointer;color:var(--ink-soft)">&times;</button></div>'+
         '<div class="cnums"><div class="cnum"><div class="k">Unpaid balance (all months)</div><div class="v bal">'+fmt(unpaid)+'</div></div></div>'+
-        '<div class="k" style="font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin:14px 0 2px">Statements by due date</div>'+
+        '<div class="k" style="font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin:14px 0 2px">Statements by '+(byCut?'cutoff month':'due date')+'</div>'+
         (rows||'<div class="empty" style="padding:14px 0">No statements around this time.</div>')+
         '<div class="cactions" style="margin-top:12px"><button class="miniedit" data-edit="'+card.id+'">Edit cycle</button></div>';
       wrap.appendChild(box);
     });
+    $("cvDue").addEventListener("click",function(){state.cardView="due";renderCards();});
+    $("cvCut").addEventListener("click",function(){state.cardView="cutoff";renderCards();});
     wrap.querySelectorAll("[data-cardpaid]").forEach(function(b){b.addEventListener("click",function(){toggleCardPaidYM(b.dataset.cardpaid,b.dataset.ym);});});
     wrap.querySelectorAll("[data-del]").forEach(function(b){b.addEventListener("click",function(){deleteCard(b.dataset.del);});});
     wrap.querySelectorAll("[data-edit]").forEach(function(b){b.addEventListener("click",function(){editCard(b.dataset.edit);});});
