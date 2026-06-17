@@ -550,26 +550,38 @@
   function instActive(p,ym){var end=addMonths(p.startMonth,p.months-1);return ym>=p.startMonth&&ym<=end;}
   function billCreatedMonth(b){return monthOf(new Date(b.createdAt||Date.now()).toISOString().slice(0,10));}
   function billActiveInMonth(b,ym){return b.recurring?(ym>=billCreatedMonth(b)):(b.oneMonth===ym);}
-  // total a card statement asks for in a given due-month
-  function cardStatementDue(card,ym){
-    var charges=sum(state.purchases.filter(function(p){return p.method===card.name&&chargeDueYM(card,p.date)===ym;}),function(p){return p.amount;});
-    var inst=sum(state.installments.filter(function(p){return p.cardName===card.name&&instActive(p,ym);}),function(p){return instMonthly(p);});
-    var cardBills=sum(state.bills.filter(function(b){return b.method===card.name&&billActiveInMonth(b,ym);}),function(b){return b.amount;});
+  // ---- billing cycles, identified by the CLOSE (cutoff) month ----
+  // amount on the one statement that CLOSES in closeYM
+  function cardCycleAmount(card,closeYM){
+    var charges=sum(state.purchases.filter(function(p){return p.method===card.name&&chargeCloseYM(card,p.date)===closeYM;}),function(p){return p.amount;});
+    var inst=sum(state.installments.filter(function(p){return p.cardName===card.name&&instActive(p,closeYM);}),function(p){return instMonthly(p);});
+    var cardBills=sum(state.bills.filter(function(b){return b.method===card.name&&billActiveInMonth(b,closeYM);}),function(b){return b.amount;});
     return charges+inst+cardBills;
   }
-  function earliestMonth(){
+  function cycleDueDate(card,closeYM){return stmtDueDateForClose(card,closeYM);}
+  function cyclePaid(card,closeYM){return !!(card.paidMonths&&card.paidMonths[closeYM]);}
+  function cardEarliestClose(card){
     var months=[];
-    state.purchases.forEach(function(p){if(isCredit(p.method))months.push(monthOf(p.date));});
-    state.installments.forEach(function(p){months.push(p.startMonth);});
+    state.purchases.forEach(function(p){if(p.method===card.name)months.push(chargeCloseYM(card,p.date));});
+    state.installments.forEach(function(p){if(p.cardName===card.name)months.push(p.startMonth);});
+    state.bills.forEach(function(b){if(b.method===card.name)months.push(billCreatedMonth(b));});
     if(!months.length)return state.month;
     months.sort();return months[0];
   }
-  // running unpaid balance for a card up to and including ym
-  function cardUnpaid(card,ym){
-    var start=earliestMonth();var total=0;var m=start;var guard=0;
-    while(m<=ym&&guard<400){ if(!(card.paidMonths&&card.paidMonths[m])) total+=cardStatementDue(card,m); m=addMonths(m,1);guard++; }
+  // running unpaid balance: every cycle that closed on/before asOf and isn't marked paid
+  function cardUnpaid(card,asOf){
+    var start=cardEarliestClose(card);var total=0;var m=start;var guard=0;
+    while(m<=asOf&&guard<400){ if(!cyclePaid(card,m)) total+=cardCycleAmount(card,m); m=addMonths(m,1);guard++; }
     return total;
   }
+  // cycles whose DUE DATE lands in calendar month M (can be 0, 1, or 2 of them)
+  function cardCyclesDueInMonth(card,M){
+    var out=[];var m=addMonths(M,-3),end=addMonths(M,3),g=0;
+    while(m<=end&&g<24){var dd=cycleDueDate(card,m);if(monthOf(dd)===M){out.push({closeYM:m,dueDate:dd,amount:cardCycleAmount(card,m),paid:cyclePaid(card,m)});}m=addMonths(m,1);g++;}
+    return out;
+  }
+  function cardDueInMonth(card,M){return sum(cardCyclesDueInMonth(card,M),function(c){return c.amount;});}
+  function cardPaidInMonth(card,M){return sum(cardCyclesDueInMonth(card,M).filter(function(c){return c.paid;}),function(c){return c.amount;});}
 
   // month-scoped
   function incomeMonth(){return state.income.filter(function(t){return monthOf(t.date)===state.month;});}
@@ -621,8 +633,8 @@
     var billsUnpaid=sum(bm.filter(function(b){return !b.paid;}),function(b){return b.bill.amount;});
     var cardPaidThisMonth=0,cardDueThisMonth=0,cardUnpaidTotal=0;
     state.cards.forEach(function(c){
-      var due=cardStatementDue(c,M);cardDueThisMonth+=due;
-      if(c.paidMonths&&c.paidMonths[M])cardPaidThisMonth+=due;
+      cardDueThisMonth+=cardDueInMonth(c,M);
+      cardPaidThisMonth+=cardPaidInMonth(c,M);
       cardUnpaidTotal+=cardUnpaid(c,M);
     });
     var moneyOut=cashSpent+billsPaid+cardPaidThisMonth;
@@ -651,7 +663,7 @@
       if(bill.recurring){var bs=maxYM(monthOf(new Date(bill.createdAt||Date.now()).toISOString().slice(0,10)),startW);var m=bs,g=0;while(m<=endM&&g<120){add(m);m=addMonths(m,1);g++;}}
       else if(bill.oneMonth){add(bill.oneMonth);}
     });
-    state.cards.forEach(function(card){var m=startW,g=0;while(m<=endM&&g<120){var due=cardStatementDue(card,m);if(due>0&&!(card.paidMonths&&card.paidMonths[m])){var dd=cardDueDateISO(card,m);if(dd<=horizon)out.push({type:"card",id:card.id,name:card.name+" statement",month:m,amount:due,dueDate:dd});}m=addMonths(m,1);g++;}});
+    state.cards.forEach(function(card){var m=startW,g=0;while(m<=endM&&g<120){var amt=cardCycleAmount(card,m);if(amt>0&&!cyclePaid(card,m)){var dd=cycleDueDate(card,m);if(dd<=horizon)out.push({type:"card",id:card.id,name:card.name+" statement",month:m,amount:amt,dueDate:dd});}m=addMonths(m,1);g++;}});
     out.sort(function(a,b){return a.dueDate.localeCompare(b.dueDate);});
     return out;
   }
@@ -715,8 +727,9 @@
     var up=$("upcoming");up.innerHTML="";var any=false;
     billsMonth().filter(function(b){return !b.paid&&!isCredit(b.bill.method);}).forEach(function(b){any=true;up.appendChild(billRow(b,true));});
     state.cards.forEach(function(card){
-      var due=cardStatementDue(card,state.month);var paid=!!(card.paidMonths&&card.paidMonths[state.month]);
-      if(due>0&&!paid){any=true;up.appendChild(cardDueRow(card,due));}
+      cardCyclesDueInMonth(card,state.month).forEach(function(c){
+        if(c.amount>0&&!c.paid){any=true;up.appendChild(cardDueRow(card,c));}
+      });
     });
     if(!any)up.innerHTML='<div class="empty">Nothing outstanding for '+esc(monthLabel(state.month))+'.</div>';
   }
@@ -764,9 +777,9 @@
     else{right='<div class="amt">'+fmt(b.bill.amount)+'</div><button class="paidtoggle '+(b.paid?"on":"")+'" data-id="'+b.bill.id+'">'+(b.paid?"Paid":"Mark paid")+'</button><button class="del" data-id="'+b.bill.id+'" title="Delete bill">&times;</button>';}
     d.innerHTML='<div class="due"><div class="d">'+b.day+'</div><div class="m">'+esc(ms)+'</div></div><div class="body"><div class="name">'+esc(b.bill.name)+'<span class="badge '+st.cls+'">'+esc(st.txt)+'</span></div><div class="meta">'+meta+'</div></div>'+right;
     return d;}
-  function cardDueRow(card,due){var ym=state.month;var dd=cardDueDateISO(card,ym);var day=+dd.slice(8,10);var st=billStatus(dd,false);
+  function cardDueRow(card,cyc){var dd=cyc.dueDate;var day=+dd.slice(8,10);var st=billStatus(dd,false);
     var d=document.createElement("div");d.className="bill";
-    d.innerHTML='<div class="due"><div class="d">'+day+'</div><div class="m">'+esc(monthShort(dd))+'</div></div><div class="body"><div class="name">'+esc(card.name)+' statement<span class="badge '+st.cls+'">'+st.txt+'</span></div><div class="meta">credit card · due '+day+'</div></div><div class="amt">'+fmt(due)+'</div>';
+    d.innerHTML='<div class="due"><div class="d">'+day+'</div><div class="m">'+esc(monthShort(dd))+'</div></div><div class="body"><div class="name">'+esc(card.name)+' statement<span class="badge '+st.cls+'">'+st.txt+'</span></div><div class="meta">credit card &middot; closed '+esc(prettyDate(cutoffDateISO(card,cyc.closeYM)))+'</div></div><div class="amt">'+fmt(cyc.amount)+'</div>';
     return d;}
   function renderBills(){var wrap=$("billsWrap");var list=billsMonth();wrap.innerHTML="";
     var cash=list.filter(function(b){return !isCredit(b.bill.method);});
@@ -788,9 +801,9 @@
   function prettyDate(iso){return new Date(iso+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"});}
   function cardStatementsWindow(card){
     var out=[];var m=addMonths(state.month,-3),end=addMonths(state.month,3),guard=0;
-    while(m<=end&&guard<24){var amt=cardStatementDue(card,m);var closeYM=cardCloseYMForDue(card,m);
-      if(amt>0||m===state.month||closeYM===state.month){var dd=cardDueDateISO(card,m);var cdate=cutoffDateISO(card,closeYM);var paid=!!(card.paidMonths&&card.paidMonths[m]);
-        out.push({dueYM:m,closeYM:closeYM,dueDate:dd,closeDate:cdate,amount:amt,paid:paid,status:billStatus(dd,paid)});}
+    while(m<=end&&guard<24){var amt=cardCycleAmount(card,m);var dd=cycleDueDate(card,m);
+      if(amt>0||m===state.month||monthOf(dd)===state.month){var cdate=cutoffDateISO(card,m);var paid=cyclePaid(card,m);
+        out.push({closeYM:m,dueYM:monthOf(dd),dueDate:dd,closeDate:cdate,amount:amt,paid:paid,status:billStatus(dd,paid)});}
       m=addMonths(m,1);guard++;}
     return out;
   }
@@ -813,7 +826,7 @@
         return '<div class="bill"'+(isCur?' style="background:var(--band)"':'')+'><div class="due"><div class="d">'+(+pDate.slice(8,10))+'</div><div class="m">'+esc(monthShort(pDate))+'</div></div>'+
           '<div class="body"><div class="name">'+esc(pLabel)+'<span class="badge '+s.status.cls+'">'+esc(s.status.txt)+'</span></div><div class="meta">'+esc(sec)+'</div></div>'+
           '<div class="amt">'+fmt(s.amount)+'</div>'+
-          '<button class="paidtoggle '+(s.paid?"on":"")+'" data-cardpaid="'+card.id+'" data-ym="'+s.dueYM+'">'+(s.paid?"Paid":"Mark paid")+'</button></div>';
+          '<button class="paidtoggle '+(s.paid?"on":"")+'" data-cardpaid="'+card.id+'" data-ym="'+s.closeYM+'">'+(s.paid?"Paid":"Mark paid")+'</button></div>';
       }).join("");
       var box=document.createElement("div");box.className="cardbox";
       box.innerHTML='<div class="ctop"><div><div class="cname">'+esc(card.name)+'</div><div class="ccycle">'+cyc+'</div></div><button class="del" data-del="'+card.id+'" title="Delete card" style="font-size:20px;background:none;border:none;cursor:pointer;color:var(--ink-soft)">&times;</button></div>'+
