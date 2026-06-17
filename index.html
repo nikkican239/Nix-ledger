@@ -330,17 +330,27 @@
 
     <div class="card" style="margin-top:24px">
       <h2 id="instTitle" class="tight">Add an installment plan</h2>
-      <div class="hsub" style="margin-top:-2px">A purchase split into equal monthly payments on one card.</div>
+      <div class="hsub" style="margin-top:-2px">A purchase split into monthly payments on one card.</div>
       <div class="grid2" style="margin-bottom:14px">
         <div class="field"><label for="instName">What it's for</label><input type="text" id="instName" maxlength="40" placeholder="e.g. Refrigerator, Solar"></div>
         <div class="field"><label for="instCard">On card</label><select id="instCard"></select></div>
       </div>
-      <div class="grid3" style="margin-bottom:14px">
-        <div class="field"><label for="instTotal">Total amount</label><div class="amount-wrap"><span class="cur instCur">₱</span><input type="number" id="instTotal" inputmode="decimal" step="0.01" min="0" placeholder="0.00"></div></div>
+      <div class="grid2" style="margin-bottom:14px">
+        <div class="field"><label for="instInterest">Interest</label><select id="instInterest"><option value="zero">0% interest (even split)</option><option value="interest">Has interest</option></select></div>
         <div class="field"><label for="instMonths">Number of months</label><input type="number" id="instMonths" min="1" max="60" placeholder="e.g. 12"></div>
-        <div class="field"><label for="instStart">First payment month</label><input type="month" id="instStart"></div>
       </div>
-      <div class="field" style="margin-bottom:16px"><label for="instCat">Category</label><select id="instCat"></select></div>
+      <div id="instZeroWrap" class="field" style="margin-bottom:14px"><label for="instTotal">Total price</label><div class="amount-wrap"><span class="cur instCur">₱</span><input type="number" id="instTotal" inputmode="decimal" step="0.01" min="0" placeholder="0.00"></div></div>
+      <div id="instInterestWrap" style="display:none">
+        <div class="grid2" style="margin-bottom:14px">
+          <div class="field"><label for="instMonthlyAmt">Monthly payment</label><div class="amount-wrap"><span class="cur instCur">₱</span><input type="number" id="instMonthlyAmt" inputmode="decimal" step="0.01" min="0" placeholder="0.00"></div></div>
+          <div class="field"><label for="instPrice">Item price (optional)</label><div class="amount-wrap"><span class="cur instCur">₱</span><input type="number" id="instPrice" inputmode="decimal" step="0.01" min="0" placeholder="before interest"></div></div>
+        </div>
+        <div class="hsub" style="margin-top:-4px;margin-bottom:14px">Enter the monthly amount your bank gave you; it already includes interest. The optional item price lets the app show how much interest you're paying.</div>
+      </div>
+      <div class="grid2" style="margin-bottom:16px">
+        <div class="field"><label for="instStart">First payment month</label><input type="month" id="instStart"></div>
+        <div class="field"><label for="instCat">Category</label><select id="instCat"></select></div>
+      </div>
       <input type="hidden" id="instEditId">
       <div class="row-actions"><button class="btn full" id="instSave">Add installment</button><button class="btn ghost" id="instCancel" style="display:none">Cancel</button></div>
     </div>
@@ -534,7 +544,7 @@
     }
     var d2=Math.min(card.dueDay||1,daysInMonth(ym));return ym+"-"+pad2(d2);
   }
-  function instMonthly(p){return p.total/p.months;}
+  function instMonthly(p){return (p.monthly!=null)?p.monthly:(p.total/p.months);}
   function instActive(p,ym){var end=addMonths(p.startMonth,p.months-1);return ym>=p.startMonth&&ym<=end;}
   // total a card statement asks for in a given due-month
   function cardStatementDue(card,ym){
@@ -825,19 +835,33 @@
       var done=state.month>end;var notyet=state.month<p.startMonth;
       var status=done?'<span class="badge paid">Finished</span>':(notyet?'<span class="badge up">Starts '+monthShort(p.startMonth)+'</span>':'<span class="badge soon">Payment '+n+' of '+p.months+'</span>');
       var box=document.createElement("div");box.className="bill";
-      box.innerHTML='<div class="body"><div class="name">'+esc(p.name)+status+'</div><div class="meta">'+esc(p.cardName)+' · '+fmt(instMonthly(p))+'/mo · '+fmt(p.total)+' over '+p.months+' mo</div></div><div class="amt">'+(active?fmt(instMonthly(p)):'<span style="color:var(--ink-soft)">—</span>')+'</div><button class="del" data-instdel="'+p.id+'" title="Delete">&times;</button>';
+      var interest=(p.principal!=null&&p.total>p.principal)?(p.total-p.principal):0;
+      var metaExtra=interest>0?(' &middot; incl. '+fmt(interest)+' interest'):'';
+      box.innerHTML='<div class="body"><div class="name">'+esc(p.name)+status+'</div><div class="meta">'+esc(p.cardName)+' &middot; '+fmt(instMonthly(p))+'/mo &middot; '+fmt(p.total)+' over '+p.months+' mo'+metaExtra+'</div></div><div class="amt">'+(active?fmt(instMonthly(p)):'<span style="color:var(--ink-soft)">—</span>')+'</div><button class="del" data-instdel="'+p.id+'" title="Delete">&times;</button>';
       wrap.appendChild(box);
     });
     wrap.querySelectorAll("[data-instdel]").forEach(function(b){b.addEventListener("click",function(){deleteInst(b.dataset.instdel);});});
   }
-  function resetInstForm(){$("instName").value="";$("instTotal").value="";$("instMonths").value="";$("instStart").value=state.month;$("instEditId").value="";}
+  function instInterestToggle(){var m=$("instInterest").value;$("instZeroWrap").style.display=(m==="zero")?"":"none";$("instInterestWrap").style.display=(m==="interest")?"":"none";}
+  function resetInstForm(){$("instName").value="";$("instTotal").value="";$("instMonthlyAmt").value="";$("instPrice").value="";$("instMonths").value="";$("instInterest").value="zero";$("instStart").value=state.month;$("instEditId").value="";instInterestToggle();}
   async function saveInst2(){
-    var name=$("instName").value.trim();var total=parseFloat($("instTotal").value);var months=parseInt($("instMonths").value,10);var start=$("instStart").value;
+    var name=$("instName").value.trim();var months=parseInt($("instMonths").value,10);var start=$("instStart").value;var mode=$("instInterest").value;
     if(!name){toast("Name the installment");return;}
-    if(!(total>0)){toast("Enter a total above zero");return;}
     if(!(months>=1)){toast("Enter the number of months");return;}
     if(!start){toast("Pick the first payment month");return;}
-    state.installments.push({id:uid(),name:name,cardName:$("instCard").value,total:total,months:months,startMonth:start,category:$("instCat").value,createdAt:Date.now()});
+    var monthly,total,principal=null;
+    if(mode==="interest"){
+      monthly=parseFloat($("instMonthlyAmt").value);
+      if(!(monthly>0)){toast("Enter the monthly payment");return;}
+      total=monthly*months;
+      var price=parseFloat($("instPrice").value);
+      if(price>0)principal=price;
+    } else {
+      total=parseFloat($("instTotal").value);
+      if(!(total>0)){toast("Enter the total price");return;}
+      monthly=total/months;principal=total;
+    }
+    state.installments.push({id:uid(),name:name,cardName:$("instCard").value,monthly:monthly,total:total,principal:principal,months:months,startMonth:start,category:$("instCat").value,createdAt:Date.now()});
     await saveInst();resetInstForm();renderCards();renderHeader();toast("Installment added");
   }
   async function deleteInst(id){var p=state.installments.find(function(x){return x.id===id;});if(!p)return;if(!confirm('Delete the installment "'+p.name+'"?'))return;state.installments=state.installments.filter(function(x){return x.id!==id;});await saveInst();renderCards();renderHeader();toast("Installment deleted");}
@@ -968,6 +992,7 @@
     $("cardSave").addEventListener("click",saveCard);$("cardCancel").addEventListener("click",resetCardForm);
     $("cardDueMode").addEventListener("change",cardModeToggle);
     $("instSave").addEventListener("click",saveInst2);$("instCancel").addEventListener("click",resetInstForm);
+    $("instInterest").addEventListener("change",instInterestToggle);
     $("receiptDrop").addEventListener("click",function(){$("receiptInput").click();});
     $("receiptInput").addEventListener("change",function(e){var f=e.target.files[0];if(!f)return;$("receiptLabel").textContent="Processing photo…";compressImage(f,function(d){if(!d){toast("Couldn't read that image");return;}state.pendingReceipt=d;var th=$("receiptThumb");th.src=d;th.style.display="block";$("receiptLabel").style.display="none";$("receiptDrop").classList.add("has");});});
     $("fMethod").addEventListener("change",renderPurchases);$("fCat").addEventListener("change",renderPurchases);$("fSearch").addEventListener("input",renderPurchases);
@@ -997,7 +1022,7 @@
   async function enterApp(){
     await loadAll();
     state.month=thisMonth();
-    $("monthPick").value=state.month;$("incDate").value=todayISO();$("purDate").value=todayISO();$("instStart").value=state.month;$("svDate").value=todayISO();setSvKind("deposit");cardModeToggle();
+    $("monthPick").value=state.month;$("incDate").value=todayISO();$("purDate").value=todayISO();$("instStart").value=state.month;$("svDate").value=todayISO();setSvKind("deposit");cardModeToggle();instInterestToggle();
     applyCurrency();renderBrand();refreshLists();renderHeader();renderSummary();
     var em=$("userEmail");if(em&&currentUser)em.textContent=currentUser.email||"";
   }
