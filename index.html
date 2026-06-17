@@ -188,9 +188,24 @@
     .brand h1{font-size:24px} .balance .amt{font-size:24px}
   }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  .authgate{position:fixed;inset:0;background:linear-gradient(180deg,#FDF5F3,#F4DFE5);display:none;align-items:center;justify-content:center;padding:24px;z-index:80}
+  .authgate.show{display:flex}
+  .authcard{background:#fff;border:1px solid var(--rule-strong);border-radius:14px;padding:28px 24px;max-width:380px;width:100%;box-shadow:0 24px 60px rgba(90,40,60,.18)}
+  .authbrand{text-align:center;margin-bottom:20px}
+  .authbrand .aowner{font-family:var(--script);font-size:22px;color:var(--red);display:block;line-height:1}
+  .authbrand h1{font-family:var(--serif);font-weight:700;font-size:26px;margin:2px 0 4px;color:var(--ink)}
+  .authbrand .asub{font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;color:var(--ink-soft);text-transform:uppercase}
+  .authbrand .heart{color:var(--red)}
+  .authswitch{text-align:center;margin-top:14px}
+  .authswitch a{color:var(--red);cursor:pointer;font-size:13px;text-decoration:underline}
+  .author{text-align:center;color:var(--ink-soft);font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin:16px 0 10px}
+  .authmsg{margin-top:14px;font-size:13px;color:var(--ink-soft);text-align:center;line-height:1.5}
+</style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap" id="appRoot" style="display:none">
   <header class="top">
     <div class="brand"><span class="owner" id="brandOwner">Nikki&rsquo;s</span><h1 id="brandTitle">Household Ledger</h1><span class="sub" id="brandSub">this ledger belongs to Nikki <span class="heart">&#9825;</span></span></div>
     <div class="topright">
@@ -364,30 +379,51 @@
     <input type="file" id="restoreInput" accept="application/json" style="display:none">
   </div>
   <div class="row-actions" style="margin-bottom:16px"><button class="btn" id="setSave">Save settings</button></div>
+  <div class="field" style="margin-bottom:14px"><label>Account</label><div class="meta" style="margin:0 0 8px">Signed in as <span id="userEmail">—</span></div><div class="row-actions"><button class="btn ghost" id="signOutBtn">Sign out</button><button class="btn ghost" id="importLocalBtn">Import old data from this device</button></div></div>
   <div class="field"><label>Danger zone</label><button class="btn danger" id="clearAll">Erase all records</button></div>
 </div></div>
 
 <div class="toast" id="toast"></div>
 
+<div class="authgate" id="authScrim">
+  <div class="authcard">
+    <div class="authbrand"><span class="aowner">welcome to</span><h1>Household Ledger</h1><span class="asub">sign in to sync across your devices <span class="heart">&#9829;</span></span></div>
+    <div id="authForm">
+      <div class="field" style="margin-bottom:12px"><label for="authEmail">Email</label><input type="email" id="authEmail" autocomplete="username" placeholder="you@email.com"></div>
+      <div class="field" style="margin-bottom:16px"><label for="authPw">Password</label><input type="password" id="authPw" autocomplete="current-password" placeholder="at least 6 characters"></div>
+      <button class="btn full" id="authPrimary">Sign in</button>
+      <div class="authswitch"><a id="authToggle">No account yet? Create one</a></div>
+      <div class="author">or</div>
+      <button class="btn ghost full" id="authGithub">Continue with GitHub</button>
+    </div>
+    <div class="authmsg" id="authMsg"></div>
+  </div>
+</div>
+
 <script>
 (function(){
   "use strict";
-  // ---- device storage (IndexedDB) ----
-  var DB_NAME="householdLedger", DB_STORE="kv", DB_VER=1, _dbp=null;
-  var useMem=(typeof indexedDB==="undefined"), memFallback={};
-  function idb(){ if(_dbp)return _dbp; _dbp=new Promise(function(res,rej){
-    var req=indexedDB.open(DB_NAME,DB_VER);
-    req.onupgradeneeded=function(){req.result.createObjectStore(DB_STORE);};
-    req.onsuccess=function(){res(req.result);}; req.onerror=function(){rej(req.error);};
-  }); return _dbp; }
-  function idbReq(r){return new Promise(function(res,rej){r.onsuccess=function(){res(r.result);};r.onerror=function(){rej(r.error);};});}
+  // ---- cloud storage (Supabase) ----
+  // PASTE YOUR TWO VALUES BETWEEN THE QUOTES BELOW (see the setup steps):
+  var SUPABASE_URL = "https://yddsziremqmpjhtllstk.supabase.co";
+  var SUPABASE_ANON_KEY = "sb_publishable_qw3kBOB59FlMxdDIPxrGYQ_FWfp08I1";
+
+  var sb=null, currentUser=null, inApp=false, authMode="signin";
+  function configReady(){ return !(/PASTE_/.test(SUPABASE_URL)||/PASTE_/.test(SUPABASE_ANON_KEY)); }
+  function initClient(){
+    if(sb) return sb;
+    if(typeof supabase==="undefined"||!supabase.createClient) return null;
+    if(!configReady()) return null;
+    sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+    return sb;
+  }
   var Store={
-    async get(k){ if(useMem) return (k in memFallback)?memFallback[k]:null;
-      try{var db=await idb();var st=db.transaction(DB_STORE,"readonly").objectStore(DB_STORE);var v=await idbReq(st.get(k));return (v===undefined)?null:v;}catch(e){return null;} },
-    async set(k,v){ if(useMem){memFallback[k]=v;return true;}
-      try{var db=await idb();var st=db.transaction(DB_STORE,"readwrite").objectStore(DB_STORE);await idbReq(st.put(v,k));return true;}catch(e){console.error(e);return false;} },
-    async del(k){ if(useMem){delete memFallback[k];return;}
-      try{var db=await idb();var st=db.transaction(DB_STORE,"readwrite").objectStore(DB_STORE);await idbReq(st.delete(k));}catch(e){} }
+    async get(k){ if(!sb||!currentUser) return null;
+      try{var r=await sb.from("ledger_kv").select("v").eq("k",k).maybeSingle();if(r.error){console.error(r.error);return null;}return r.data?r.data.v:null;}catch(e){console.error(e);return null;} },
+    async set(k,v){ if(!sb||!currentUser) return false;
+      try{var r=await sb.from("ledger_kv").upsert({user_id:currentUser.id,k:k,v:v,updated_at:new Date().toISOString()},{onConflict:"user_id,k"});if(r.error){console.error(r.error);return false;}return true;}catch(e){console.error(e);return false;} },
+    async del(k){ if(!sb||!currentUser) return;
+      try{await sb.from("ledger_kv").delete().eq("k",k);}catch(e){console.error(e);} }
   };
   var K_INC="hl:income:v2",K_PUR="hl:purchases:v2",K_BILL="hl:bills:v2",K_SET="hl:settings:v2",K_CARD="hl:cards:v1",K_INST="hl:installments:v1";
   var K_RC=function(id){return "hl:receipt:"+id;};
@@ -837,12 +873,88 @@
     document.addEventListener("keydown",function(e){if(e.key==="Escape"){closeDetail();$("setScrim").classList.remove("show");}});
   }
 
-  async function init(){
-    if(useMem)$("warn").classList.add("show");
+  // ---- auth + boot ----
+  async function enterApp(){
     await loadAll();
     state.month=thisMonth();
     $("monthPick").value=state.month;$("incDate").value=todayISO();$("purDate").value=todayISO();$("instStart").value=state.month;
-    applyCurrency();renderBrand();refreshLists();renderHeader();renderSummary();wire();
+    applyCurrency();renderBrand();refreshLists();renderHeader();renderSummary();
+    var em=$("userEmail");if(em&&currentUser)em.textContent=currentUser.email||"";
+  }
+  function showAuth(msg){$("appRoot").style.display="none";$("authScrim").classList.add("show");if(msg!==undefined)$("authMsg").textContent=msg;}
+  function hideAuth(){$("authScrim").classList.remove("show");$("appRoot").style.display="";}
+  function handleSession(session){
+    if(session&&session.user){
+      var changed=!currentUser||currentUser.id!==session.user.id;
+      currentUser=session.user;hideAuth();
+      if(!inApp||changed){inApp=true;enterApp();}
+    } else {
+      currentUser=null;inApp=false;
+      state.income=[];state.purchases=[];state.bills=[];state.cards=[];state.installments=[];
+      showAuth("");
+    }
+  }
+  function setAuthMode(mode){
+    authMode=mode;
+    $("authPrimary").textContent=(mode==="signup")?"Create account":"Sign in";
+    $("authToggle").textContent=(mode==="signup")?"Have an account? Sign in":"No account yet? Create one";
+    $("authMsg").textContent="";
+  }
+  async function doAuth(){
+    if(!sb)return;
+    var email=$("authEmail").value.trim(),pw=$("authPw").value;
+    if(!email||!pw){$("authMsg").textContent="Enter your email and password.";return;}
+    var btn=$("authPrimary");btn.disabled=true;$("authMsg").textContent="Please wait\u2026";
+    try{
+      var r=(authMode==="signup")?await sb.auth.signUp({email:email,password:pw}):await sb.auth.signInWithPassword({email:email,password:pw});
+      if(r.error){$("authMsg").textContent=r.error.message;}
+      else if(authMode==="signup"&&!(r.data&&r.data.session)){$("authMsg").textContent="Account created. If asked, confirm via the email link, then sign in.";setAuthMode("signin");}
+    }catch(e){$("authMsg").textContent="Could not connect. Check your internet and try again.";}
+    btn.disabled=false;
+  }
+  async function doSignOut(){ if(sb)await sb.auth.signOut(); $("setScrim").classList.remove("show"); }
+  async function doGithub(){
+    if(!sb)return;
+    $("authMsg").textContent="Opening GitHub\u2026";
+    try{var r=await sb.auth.signInWithOAuth({provider:"github",options:{redirectTo:location.origin+location.pathname}});if(r.error)$("authMsg").textContent=r.error.message;}
+    catch(e){$("authMsg").textContent="Could not start GitHub sign-in.";}
+  }
+  async function importLegacy(){
+    if(!currentUser){toast("Sign in first");return;}
+    if(typeof indexedDB==="undefined"){toast("No local data found here");return;}
+    if(!confirm("Copy this browser's old offline data into your account? Entries already in your account with matching keys will be overwritten."))return;
+    var db;
+    try{db=await new Promise(function(res,rej){var rq=indexedDB.open("householdLedger");rq.onsuccess=function(){res(rq.result);};rq.onerror=function(){rej(rq.error);};});}
+    catch(e){toast("No local data found");return;}
+    if(!db.objectStoreNames.contains("kv")){toast("No local data found");db.close();return;}
+    var keys=await new Promise(function(res,rej){var t=db.transaction("kv","readonly").objectStore("kv").getAllKeys();t.onsuccess=function(){res(t.result||[]);};t.onerror=function(){rej(t.error);};});
+    if(!keys.length){toast("No local data found");db.close();return;}
+    var n=0;
+    for(var i=0;i<keys.length;i++){var key=keys[i];
+      var val=await new Promise(function(res){var g=db.transaction("kv","readonly").objectStore("kv").get(key);g.onsuccess=function(){res(g.result);};g.onerror=function(){res(undefined);};});
+      if(val!==undefined&&val!==null){await Store.set(String(key),String(val));n++;}
+    }
+    db.close();$("setScrim").classList.remove("show");await enterApp();toast("Imported "+n+" item(s) from this device");
+  }
+  function wireAuth(){
+    $("authPrimary").addEventListener("click",doAuth);
+    $("authToggle").addEventListener("click",function(){setAuthMode(authMode==="signup"?"signin":"signup");});
+    $("authPw").addEventListener("keydown",function(e){if(e.key==="Enter")doAuth();});
+    var gh=$("authGithub");if(gh)gh.addEventListener("click",doGithub);
+    var so=$("signOutBtn");if(so)so.addEventListener("click",doSignOut);
+    var il=$("importLocalBtn");if(il)il.addEventListener("click",importLegacy);
+  }
+  async function init(){
+    wire();wireAuth();setAuthMode("signin");
+    var client=initClient();
+    if(!client){
+      showAuth("");$("authForm").style.display="none";
+      $("authMsg").innerHTML="This app isn\u2019t connected yet. Open the file and paste your Supabase URL and key into the two CONFIG lines near the top of the script, then re-upload to your host.";
+      return;
+    }
+    sb.auth.onAuthStateChange(function(_e,session){handleSession(session);});
+    try{var res=await sb.auth.getSession();handleSession(res.data?res.data.session:null);}
+    catch(e){showAuth("Could not reach the server. Check your internet.");}
   }
   init();
 })();
