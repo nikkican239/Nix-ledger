@@ -308,14 +308,20 @@
   <section id="view-cards" style="display:none">
     <div class="card">
       <h2 id="cardFormTitle" class="tight">Add a credit card</h2>
-      <div class="hsub" style="margin-top:-2px">The cutoff is the day your statement closes. The due day is when payment is due.</div>
-      <div class="grid3" style="margin-bottom:14px">
+      <div class="hsub" style="margin-top:-2px">The cutoff is the day your statement closes. Most cards set the due date a number of days after that.</div>
+      <div class="grid2" style="margin-bottom:14px">
         <div class="field"><label for="cardName">Card name</label><input type="text" id="cardName" maxlength="30" placeholder="e.g. Metrobank"></div>
         <div class="field"><label for="cardCutoff">Statement cutoff day</label><input type="number" id="cardCutoff" min="1" max="31" placeholder="e.g. 5"></div>
-        <div class="field"><label for="cardDue">Payment due day</label><input type="number" id="cardDue" min="1" max="31" placeholder="e.g. 25"></div>
       </div>
-      <div class="field" style="margin-bottom:16px"><label for="cardOffset">Due date falls</label>
-        <select id="cardOffset"><option value="0">Same month as the cutoff</option><option value="1">The month after the cutoff</option></select>
+      <div class="field" style="margin-bottom:14px"><label for="cardDueMode">How the due date works</label>
+        <select id="cardDueMode"><option value="afterCutoff">A number of days after the cutoff</option><option value="fixedDay">A fixed day each month</option></select>
+      </div>
+      <div class="field" id="cardAfterWrap" style="margin-bottom:16px"><label for="cardDueDays">Days after the cutoff</label><input type="number" id="cardDueDays" min="1" max="60" placeholder="e.g. 21"></div>
+      <div id="cardFixedWrap" style="display:none">
+        <div class="grid2" style="margin-bottom:16px">
+          <div class="field"><label for="cardDue">Payment due day</label><input type="number" id="cardDue" min="1" max="31" placeholder="e.g. 30"></div>
+          <div class="field"><label for="cardOffset">Due date falls</label><select id="cardOffset"><option value="0">Same month as cutoff</option><option value="1">Month after cutoff</option></select></div>
+        </div>
       </div>
       <input type="hidden" id="cardEditId">
       <div class="row-actions"><button class="btn full" id="cardSave">Add card</button><button class="btn ghost" id="cardCancel" style="display:none">Cancel</button></div>
@@ -511,12 +517,23 @@
   function methodOptions(){return state.settings.wallets.concat(state.cards.map(function(c){return c.name;}));}
 
   // statement math
-  function chargeDueYM(card,dateISO){
-    var d=+dateISO.slice(8,10),ym=dateISO.slice(0,7);
-    var closeYM=(d<=card.cutoffDay)?ym:addMonths(ym,1);
-    return addMonths(closeYM,card.dueOffset);
+  function addDaysISO(iso,n){var d=new Date(iso+"T00:00:00");d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
+  function cutoffDateISO(card,closeYM){var day=Math.min(card.cutoffDay,daysInMonth(closeYM));return closeYM+"-"+pad2(day);}
+  function stmtDueDateForClose(card,closeYM){
+    if(card.dueMode==="afterCutoff"){return addDaysISO(cutoffDateISO(card,closeYM), card.dueDays||20);}
+    var dueYM=addMonths(closeYM, card.dueOffset||0);var day=Math.min(card.dueDay||1, daysInMonth(dueYM));return dueYM+"-"+pad2(day);
   }
-  function cardDueDateISO(card,ym){var day=Math.min(card.dueDay,daysInMonth(ym));return ym+"-"+pad2(day);}
+  function chargeCloseYM(card,dateISO){var d=+dateISO.slice(8,10),ym=dateISO.slice(0,7);return (d<=card.cutoffDay)?ym:addMonths(ym,1);}
+  function chargeDueDate(card,dateISO){return stmtDueDateForClose(card, chargeCloseYM(card,dateISO));}
+  function chargeDueYM(card,dateISO){return monthOf(chargeDueDate(card,dateISO));}
+  function cardDueDateISO(card,ym){
+    if(card.dueMode==="afterCutoff"){
+      var cands=[ym,addMonths(ym,-1),addMonths(ym,1),addMonths(ym,-2)];
+      for(var i=0;i<cands.length;i++){var dd=stmtDueDateForClose(card,cands[i]);if(monthOf(dd)===ym)return dd;}
+      var day=Math.min((card.dueDays||20),daysInMonth(ym));return ym+"-"+pad2(day);
+    }
+    var d2=Math.min(card.dueDay||1,daysInMonth(ym));return ym+"-"+pad2(d2);
+  }
   function instMonthly(p){return p.total/p.months;}
   function instActive(p,ym){var end=addMonths(p.startMonth,p.months-1);return ym>=p.startMonth&&ym<=end;}
   // total a card statement asks for in a given due-month
@@ -753,7 +770,8 @@
       var dd=cardDueDateISO(card,state.month);
       var stt=due>0?(paid?{cls:"paid",txt:"Paid"}:billStatus(dd,false)):null;
       var box=document.createElement("div");box.className="cardbox";
-      box.innerHTML='<div class="ctop"><div><div class="cname">'+esc(card.name)+(stt?' <span class="badge '+stt.cls+'">'+stt.txt+'</span>':'')+'</div><div class="ccycle">Cuts day '+card.cutoffDay+' · due day '+card.dueDay+' '+(card.dueOffset?'(next month)':'(same month)')+'</div></div><button class="del" data-del="'+card.id+'" title="Delete card" style="font-size:20px;background:none;border:none;cursor:pointer;color:var(--ink-soft)">&times;</button></div>'+
+      var cyc=(card.dueMode==="afterCutoff")?('Cuts day '+card.cutoffDay+' &middot; due '+(card.dueDays||0)+' days after cutoff'):('Cuts day '+card.cutoffDay+' &middot; due day '+card.dueDay+' '+(card.dueOffset?'(next month)':'(same month)'));
+      box.innerHTML='<div class="ctop"><div><div class="cname">'+esc(card.name)+(stt?' <span class="badge '+stt.cls+'">'+stt.txt+'</span>':'')+'</div><div class="ccycle">'+cyc+'</div></div><button class="del" data-del="'+card.id+'" title="Delete card" style="font-size:20px;background:none;border:none;cursor:pointer;color:var(--ink-soft)">&times;</button></div>'+
         '<div class="cnums"><div class="cnum"><div class="k">Statement due '+monthShort(dd)+' '+(+dd.slice(8,10))+'</div><div class="v due">'+fmt(due)+'</div></div><div class="cnum"><div class="k">Unpaid balance</div><div class="v bal">'+fmt(unpaid)+'</div></div></div>'+
         '<div class="cactions"><button class="paidtoggle '+(paid?"on":"")+'" data-paid="'+card.id+'" style="border:1px solid var(--rule-strong);background:'+(paid?'var(--green)':'#fff')+';color:'+(paid?'#fff':'var(--ink-soft)')+';cursor:pointer;border-radius:5px;font-family:var(--mono);font-size:11px;text-transform:uppercase;padding:8px 12px">'+(paid?"Statement paid":"Mark statement paid")+'</button><button class="miniedit" data-edit="'+card.id+'">Edit cycle</button></div>';
       wrap.appendChild(box);
@@ -770,21 +788,28 @@
     var extra=(charges||inst)?(" "+charges+" purchase(s) and "+inst+" installment(s) still reference it; they'll show as having no card cycle."):"";
     if(!confirm('Delete card "'+c.name+'"?'+extra))return;
     state.cards=state.cards.filter(function(x){return x.id!==id;});await saveCards();refreshLists();renderCards();renderHeader();toast("Card deleted");}
+  function cardModeToggle(){var m=$("cardDueMode").value;$("cardAfterWrap").style.display=(m==="afterCutoff")?"":"none";$("cardFixedWrap").style.display=(m==="fixedDay")?"":"none";}
   function editCard(id){var c=state.cards.find(function(x){return x.id===id;});if(!c)return;
-    $("cardName").value=c.name;$("cardCutoff").value=c.cutoffDay;$("cardDue").value=c.dueDay;$("cardOffset").value=String(c.dueOffset);
+    $("cardName").value=c.name;$("cardCutoff").value=c.cutoffDay;
+    var mode=c.dueMode||"fixedDay";$("cardDueMode").value=mode;
+    if(mode==="afterCutoff"){$("cardDueDays").value=c.dueDays||"";}
+    else{$("cardDue").value=c.dueDay||"";$("cardOffset").value=String(c.dueOffset||0);}
+    cardModeToggle();
     $("cardEditId").value=c.id;$("cardFormTitle").textContent="Edit card";$("cardSave").textContent="Update card";$("cardCancel").style.display="block";
     window.scrollTo({top:0,behavior:"smooth"});}
-  function resetCardForm(){$("cardName").value="";$("cardCutoff").value="";$("cardDue").value="";$("cardOffset").value="1";$("cardEditId").value="";$("cardFormTitle").textContent="Add a credit card";$("cardSave").textContent="Add card";$("cardCancel").style.display="none";}
+  function resetCardForm(){$("cardName").value="";$("cardCutoff").value="";$("cardDueMode").value="afterCutoff";$("cardDueDays").value="";$("cardDue").value="";$("cardOffset").value="0";$("cardEditId").value="";$("cardFormTitle").textContent="Add a credit card";$("cardSave").textContent="Add card";$("cardCancel").style.display="none";cardModeToggle();}
   async function saveCard(){
-    var name=$("cardName").value.trim();var cut=parseInt($("cardCutoff").value,10);var due=parseInt($("cardDue").value,10);var off=parseInt($("cardOffset").value,10);
+    var name=$("cardName").value.trim();var cut=parseInt($("cardCutoff").value,10);var mode=$("cardDueMode").value;
     if(!name){toast("Give the card a name");return;}
     if(!(cut>=1&&cut<=31)){toast("Cutoff day must be 1 to 31");return;}
-    if(!(due>=1&&due<=31)){toast("Due day must be 1 to 31");return;}
+    var fields={cutoffDay:cut,dueMode:mode};
+    if(mode==="afterCutoff"){var nd=parseInt($("cardDueDays").value,10);if(!(nd>=1&&nd<=60)){toast("Enter days after cutoff (1 to 60)");return;}fields.dueDays=nd;}
+    else{var due=parseInt($("cardDue").value,10);var off=parseInt($("cardOffset").value,10);if(!(due>=1&&due<=31)){toast("Due day must be 1 to 31");return;}fields.dueDay=due;fields.dueOffset=off;}
     var id=$("cardEditId").value;
-    if(id){var c=state.cards.find(function(x){return x.id===id;});if(c){var old=c.name;c.name=name;c.cutoffDay=cut;c.dueDay=due;c.dueOffset=off;
-        if(old!==name)state.purchases.forEach(function(p){if(p.method===old)p.method=name;}),state.installments.forEach(function(p){if(p.cardName===old)p.cardName=name;});}
+    if(id){var c=state.cards.find(function(x){return x.id===id;});if(c){var old=c.name;c.name=name;c.cutoffDay=fields.cutoffDay;c.dueMode=fields.dueMode;c.dueDays=fields.dueDays;c.dueDay=fields.dueDay;c.dueOffset=fields.dueOffset;
+        if(old!==name){state.purchases.forEach(function(p){if(p.method===old)p.method=name;});state.installments.forEach(function(p){if(p.cardName===old)p.cardName=name;});}}
       await saveCards();await savePur();await saveInst();toast("Card updated");
-    } else {state.cards.push({id:uid(),name:name,cutoffDay:cut,dueDay:due,dueOffset:off,paidMonths:{}});await saveCards();toast("Card added");}
+    } else {state.cards.push({id:uid(),name:name,cutoffDay:fields.cutoffDay,dueMode:fields.dueMode,dueDays:fields.dueDays,dueDay:fields.dueDay,dueOffset:fields.dueOffset,paidMonths:{}});await saveCards();toast("Card added");}
     resetCardForm();refreshLists();renderCards();renderHeader();
   }
 
@@ -869,7 +894,7 @@
   // CSV
   function exportCSV(){var list=purchasesMonth().slice().sort(function(a,b){return a.date.localeCompare(b.date)||a.createdAt-b.createdAt;});if(!list.length){toast("Nothing to export this month");return;}
     var rows=[["Date","Item","Category","Paid with","Amount","Billed (due)","Note","Receipt"]];
-    list.forEach(function(t){var billed=isCredit(t.method)?cardDueDateISO(cardByName(t.method),chargeDueYM(cardByName(t.method),t.date)):t.date;rows.push([t.date,t.item||"",t.category,t.method||"",t.amount.toFixed(2),billed,t.note||"",t.hasReceipt?"Yes":"No"]);});
+    list.forEach(function(t){var billed=isCredit(t.method)?chargeDueDate(cardByName(t.method),t.date):t.date;rows.push([t.date,t.item||"",t.category,t.method||"",t.amount.toFixed(2),billed,t.note||"",t.hasReceipt?"Yes":"No"]);});
     var csv=rows.map(function(r){return r.map(function(c){c=String(c);return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c;}).join(",");}).join("\r\n");
     var blob=new Blob([csv],{type:"text/csv;charset=utf-8"});var url=URL.createObjectURL(blob);var a=document.createElement("a");a.href=url;a.download="purchases-"+state.month+".csv";document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(function(){URL.revokeObjectURL(url);},1000);}
 
@@ -941,6 +966,7 @@
     $("svWithdraw").addEventListener("click",function(){setSvKind("withdrawal");});
     $("svSave").addEventListener("click",saveSavings);
     $("cardSave").addEventListener("click",saveCard);$("cardCancel").addEventListener("click",resetCardForm);
+    $("cardDueMode").addEventListener("change",cardModeToggle);
     $("instSave").addEventListener("click",saveInst2);$("instCancel").addEventListener("click",resetInstForm);
     $("receiptDrop").addEventListener("click",function(){$("receiptInput").click();});
     $("receiptInput").addEventListener("change",function(e){var f=e.target.files[0];if(!f)return;$("receiptLabel").textContent="Processing photo…";compressImage(f,function(d){if(!d){toast("Couldn't read that image");return;}state.pendingReceipt=d;var th=$("receiptThumb");th.src=d;th.style.display="block";$("receiptLabel").style.display="none";$("receiptDrop").classList.add("has");});});
@@ -971,7 +997,7 @@
   async function enterApp(){
     await loadAll();
     state.month=thisMonth();
-    $("monthPick").value=state.month;$("incDate").value=todayISO();$("purDate").value=todayISO();$("instStart").value=state.month;$("svDate").value=todayISO();setSvKind("deposit");
+    $("monthPick").value=state.month;$("incDate").value=todayISO();$("purDate").value=todayISO();$("instStart").value=state.month;$("svDate").value=todayISO();setSvKind("deposit");cardModeToggle();
     applyCurrency();renderBrand();refreshLists();renderHeader();renderSummary();
     var em=$("userEmail");if(em&&currentUser)em.textContent=currentUser.email||"";
   }
