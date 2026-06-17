@@ -367,10 +367,12 @@
         <div class="field"><label for="billAmount">Amount</label><div class="amount-wrap"><span class="cur billCur">₱</span><input type="number" id="billAmount" inputmode="decimal" step="0.01" min="0" placeholder="0.00"></div></div>
         <div class="field"><label for="billDay">Due day of month</label><input type="number" id="billDay" min="1" max="31" placeholder="e.g. 15"></div>
       </div>
-      <div class="grid2" style="margin-bottom:16px;align-items:end">
+      <div class="grid3" style="margin-bottom:16px;align-items:end">
         <div class="field"><label for="billCat">Category</label><select id="billCat"></select></div>
-        <div class="checkrow" style="padding-bottom:10px"><input type="checkbox" id="billRecurring" checked><label for="billRecurring" style="cursor:pointer">Repeats every month</label></div>
+        <div class="field"><label for="billMethod">Paid with</label><select id="billMethod"></select></div>
+        <div class="checkrow" style="padding-bottom:10px"><input type="checkbox" id="billRecurring" checked><label for="billRecurring" style="cursor:pointer">Repeats monthly</label></div>
       </div>
+      <div class="hsub" style="margin-top:-8px;margin-bottom:14px">If a bill is auto-charged to a credit card, choose that card and it shows on the card's statement instead of as a cash bill.</div>
       <button class="btn full" id="billSave">Add bill</button>
     </div>
     <div id="billsWrap"></div>
@@ -506,7 +508,7 @@
   function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
   function cur(){return state.settings.currency||"₱";}
   function fmt(n){var neg=n<0;n=Math.abs(n);return (neg?"-":"")+cur()+n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});}
-  function todayISO(){return new Date().toISOString().slice(0,10);}
+  function todayISO(){var d=new Date();return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());}
   function monthOf(iso){return iso.slice(0,7);}
   function thisMonth(){return monthOf(todayISO());}
   function pad2(n){return (n<10?"0":"")+n;}
@@ -527,7 +529,7 @@
   function methodOptions(){return state.settings.wallets.concat(state.cards.map(function(c){return c.name;}));}
 
   // statement math
-  function addDaysISO(iso,n){var d=new Date(iso+"T00:00:00");d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
+  function addDaysISO(iso,n){var d=new Date(iso+"T00:00:00Z");d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
   function cutoffDateISO(card,closeYM){var day=Math.min(card.cutoffDay,daysInMonth(closeYM));return closeYM+"-"+pad2(day);}
   function stmtDueDateForClose(card,closeYM){
     if(card.dueMode==="afterCutoff"){return addDaysISO(cutoffDateISO(card,closeYM), card.dueDays||20);}
@@ -546,11 +548,14 @@
   }
   function instMonthly(p){return (p.monthly!=null)?p.monthly:(p.total/p.months);}
   function instActive(p,ym){var end=addMonths(p.startMonth,p.months-1);return ym>=p.startMonth&&ym<=end;}
+  function billCreatedMonth(b){return monthOf(new Date(b.createdAt||Date.now()).toISOString().slice(0,10));}
+  function billActiveInMonth(b,ym){return b.recurring?(ym>=billCreatedMonth(b)):(b.oneMonth===ym);}
   // total a card statement asks for in a given due-month
   function cardStatementDue(card,ym){
     var charges=sum(state.purchases.filter(function(p){return p.method===card.name&&chargeDueYM(card,p.date)===ym;}),function(p){return p.amount;});
     var inst=sum(state.installments.filter(function(p){return p.cardName===card.name&&instActive(p,ym);}),function(p){return instMonthly(p);});
-    return charges+inst;
+    var cardBills=sum(state.bills.filter(function(b){return b.method===card.name&&billActiveInMonth(b,ym);}),function(b){return b.amount;});
+    return charges+inst+cardBills;
   }
   function earliestMonth(){
     var months=[];
@@ -611,7 +616,7 @@
     var income=sum(incomeMonth(),function(t){return t.amount;});
     var cashSpent=sum(purchasesMonth().filter(function(p){return !isCredit(p.method);}),function(p){return p.amount;});
     var cardCharges=sum(purchasesMonth().filter(function(p){return isCredit(p.method);}),function(p){return p.amount;});
-    var bm=billsMonth();
+    var bm=billsMonth().filter(function(b){return !isCredit(b.bill.method);});
     var billsPaid=sum(bm.filter(function(b){return b.paid;}),function(b){return b.bill.amount;});
     var billsUnpaid=sum(bm.filter(function(b){return !b.paid;}),function(b){return b.bill.amount;});
     var cardPaidThisMonth=0,cardDueThisMonth=0,cardUnpaidTotal=0;
@@ -636,11 +641,12 @@
   function renderHeader(){var c=computeMonth();var el=$("leftAmt");el.textContent=fmt(c.left);el.className="amt "+(c.left>=0?"pos":"neg");$("leftPeriod").textContent=monthLabel(state.month);renderReminder();}
 
   // ---- reminders: scans all months for anything overdue or due within 7 days ----
-  function addDays(iso,n){var d=new Date(iso+"T00:00:00");d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
+  function addDays(iso,n){var d=new Date(iso+"T00:00:00Z");d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
   function maxYM(a,b){return a>=b?a:b;}
   function collectDue(){
     var today=todayISO();var horizon=addDays(today,7);var startW=addMonths(thisMonth(),-6);var endM=addMonths(thisMonth(),1);var out=[];
     state.bills.forEach(function(bill){
+      if(isCredit(bill.method))return;
       function add(m){if(bill.paidMonths&&bill.paidMonths[m])return;var day=Math.min(bill.dueDay||1,daysInMonth(m));var dd=m+"-"+pad2(day);if(dd<=horizon)out.push({type:"bill",id:bill.id,name:bill.name,month:m,amount:bill.amount,dueDate:dd});}
       if(bill.recurring){var bs=maxYM(monthOf(new Date(bill.createdAt||Date.now()).toISOString().slice(0,10)),startW);var m=bs,g=0;while(m<=endM&&g<120){add(m);m=addMonths(m,1);g++;}}
       else if(bill.oneMonth){add(bill.oneMonth);}
@@ -694,7 +700,7 @@
 
     // category bars
     var byCat={};purchasesMonth().forEach(function(t){byCat[t.category]=(byCat[t.category]||0)+t.amount;});
-    billsMonth().forEach(function(b){if(b.paid){var k=b.bill.category||"Bills / Utilities";byCat[k]=(byCat[k]||0)+b.bill.amount;}});
+    billsMonth().forEach(function(b){if(b.paid&&!isCredit(b.bill.method)){var k=b.bill.category||"Bills / Utilities";byCat[k]=(byCat[k]||0)+b.bill.amount;}});
     var bars=$("catBars");bars.innerHTML="";
     var cats=Object.keys(byCat).sort(function(a,b){return byCat[b]-byCat[a];});
     var tot=sum(cats,function(k){return byCat[k];});
@@ -707,7 +713,7 @@
     // upcoming
     $("cuMonth").textContent=monthLabel(state.month);
     var up=$("upcoming");up.innerHTML="";var any=false;
-    billsMonth().filter(function(b){return !b.paid;}).forEach(function(b){any=true;up.appendChild(billRow(b,true));});
+    billsMonth().filter(function(b){return !b.paid&&!isCredit(b.bill.method);}).forEach(function(b){any=true;up.appendChild(billRow(b,true));});
     state.cards.forEach(function(card){
       var due=cardStatementDue(card,state.month);var paid=!!(card.paidMonths&&card.paidMonths[state.month]);
       if(due>0&&!paid){any=true;up.appendChild(cardDueRow(card,due));}
@@ -748,18 +754,23 @@
 
   // ---- bills ----
   function billStatus(dueDate,paid){if(paid)return{cls:"paid",txt:"Paid"};var t=todayISO();if(dueDate<t)return{cls:"overdue",txt:"Overdue"};var diff=(new Date(dueDate)-new Date(t))/86400000;if(diff<=7)return{cls:"soon",txt:"Due soon"};return{cls:"up",txt:"Upcoming"};}
-  function billRow(b,readonly){var st=billStatus(b.dueDate,b.paid);var ms=monthShort(b.dueDate);
+  function billRow(b,readonly){var onCard=isCredit(b.bill.method);var ms=monthShort(b.dueDate);
+    var st=onCard?{cls:"up",txt:"On "+b.bill.method}:billStatus(b.dueDate,b.paid);
     var d=document.createElement("div");d.className="bill";
-    var right=readonly?'<div class="amt">'+fmt(b.bill.amount)+'</div>'
-      :'<div class="amt">'+fmt(b.bill.amount)+'</div><button class="paidtoggle '+(b.paid?"on":"")+'" data-id="'+b.bill.id+'">'+(b.paid?"Paid":"Mark paid")+'</button><button class="del" data-id="'+b.bill.id+'" title="Delete bill">&times;</button>';
-    d.innerHTML='<div class="due"><div class="d">'+b.day+'</div><div class="m">'+esc(ms)+'</div></div><div class="body"><div class="name">'+esc(b.bill.name)+'<span class="badge '+st.cls+'">'+st.txt+'</span></div><div class="meta">'+esc(b.bill.category||"")+(b.bill.recurring?' · monthly':'')+'</div></div>'+right;
+    var meta=esc(b.bill.category||"")+(b.bill.recurring?' &middot; monthly':'')+(onCard?(' &middot; billed to '+esc(b.bill.method)):'');
+    var right;
+    if(readonly){right='<div class="amt">'+fmt(b.bill.amount)+'</div>';}
+    else if(onCard){right='<div class="amt">'+fmt(b.bill.amount)+'</div><button class="del" data-id="'+b.bill.id+'" title="Delete bill">&times;</button>';}
+    else{right='<div class="amt">'+fmt(b.bill.amount)+'</div><button class="paidtoggle '+(b.paid?"on":"")+'" data-id="'+b.bill.id+'">'+(b.paid?"Paid":"Mark paid")+'</button><button class="del" data-id="'+b.bill.id+'" title="Delete bill">&times;</button>';}
+    d.innerHTML='<div class="due"><div class="d">'+b.day+'</div><div class="m">'+esc(ms)+'</div></div><div class="body"><div class="name">'+esc(b.bill.name)+'<span class="badge '+st.cls+'">'+esc(st.txt)+'</span></div><div class="meta">'+meta+'</div></div>'+right;
     return d;}
   function cardDueRow(card,due){var ym=state.month;var dd=cardDueDateISO(card,ym);var day=+dd.slice(8,10);var st=billStatus(dd,false);
     var d=document.createElement("div");d.className="bill";
     d.innerHTML='<div class="due"><div class="d">'+day+'</div><div class="m">'+esc(monthShort(dd))+'</div></div><div class="body"><div class="name">'+esc(card.name)+' statement<span class="badge '+st.cls+'">'+st.txt+'</span></div><div class="meta">credit card · due '+day+'</div></div><div class="amt">'+fmt(due)+'</div>';
     return d;}
   function renderBills(){var wrap=$("billsWrap");var list=billsMonth();wrap.innerHTML="";
-    var paidTot=sum(list.filter(function(b){return b.paid;}),function(b){return b.bill.amount;});var dueTot=sum(list,function(b){return b.bill.amount;});
+    var cash=list.filter(function(b){return !isCredit(b.bill.method);});
+    var paidTot=sum(cash.filter(function(b){return b.paid;}),function(b){return b.bill.amount;});var dueTot=sum(cash,function(b){return b.bill.amount;});
     var head=document.createElement("div");head.className="dayhead";head.style.marginTop="22px";
     head.innerHTML='<span>Bills · '+esc(monthLabel(state.month))+'</span><span class="daytotal">'+fmt(paidTot)+' of '+fmt(dueTot)+' paid</span>';wrap.appendChild(head);
     if(!list.length){var e=document.createElement("div");e.className="empty";e.innerHTML='<div class="big">No bills set up</div>Add recurring bills like Meralco, water, or internet above.';wrap.appendChild(e);return;}
@@ -898,7 +909,7 @@
 
   async function saveBill(){var amt=parseFloat($("billAmount").value);var day=parseInt($("billDay").value,10);var name=$("billName").value.trim();
     if(!name){toast("Give the bill a name");return;}if(!(amt>0)){toast("Enter an amount above zero");return;}if(!(day>=1&&day<=31)){toast("Enter a due day from 1 to 31");return;}
-    state.bills.push({id:uid(),name:name,amount:amt,dueDay:day,recurring:$("billRecurring").checked,oneMonth:$("billRecurring").checked?null:state.month,category:$("billCat").value,paidMonths:{},createdAt:Date.now()});
+    state.bills.push({id:uid(),name:name,amount:amt,dueDay:day,recurring:$("billRecurring").checked,oneMonth:$("billRecurring").checked?null:state.month,category:$("billCat").value,method:$("billMethod").value,paidMonths:{},createdAt:Date.now()});
     await saveBills();$("billName").value="";$("billAmount").value="";$("billDay").value="";renderBills();renderHeader();toast("Bill added");}
 
   // backup/restore
@@ -974,6 +985,7 @@
     fillSelect($("purMethod"),methodOptions(),$("purMethod").value);
     fillSelect($("purCat"),state.settings.cats,$("purCat").value);
     fillSelect($("billCat"),state.settings.cats,$("billCat").value);
+    fillSelect($("billMethod"),methodOptions(),$("billMethod").value);
     fillSelect($("instCat"),state.settings.cats,$("instCat").value);
     fillSelect($("instCard"),state.cards.length?state.cards.map(function(c){return c.name;}):["(add a card first)"],$("instCard").value);
     var keepM=$("fMethod").value,keepC=$("fCat").value;
