@@ -781,28 +781,50 @@
   async function deleteBill(id){var b=state.bills.find(function(x){return x.id===id;});if(!b)return;if(!confirm('Delete the bill "'+b.name+'"? This removes it from every month.'))return;state.bills=state.bills.filter(function(x){return x.id!==id;});await saveBills();renderBills();renderHeader();toast("Bill deleted");}
 
   // ---- cards ----
+  function cardCloseYMForDue(card,ym){
+    if(card.dueMode==="afterCutoff"){var cands=[ym,addMonths(ym,-1),addMonths(ym,1),addMonths(ym,-2)];for(var i=0;i<cands.length;i++){if(monthOf(stmtDueDateForClose(card,cands[i]))===ym)return cands[i];}return ym;}
+    return addMonths(ym,-(card.dueOffset||0));
+  }
+  function prettyDate(iso){return new Date(iso+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"});}
+  function cardStatementsWindow(card){
+    var out=[];var m=addMonths(state.month,-3),end=addMonths(state.month,3),guard=0;
+    while(m<=end&&guard<24){var amt=cardStatementDue(card,m);
+      if(amt>0||m===state.month){var dd=cardDueDateISO(card,m);var closeYM=cardCloseYMForDue(card,m);var cdate=cutoffDateISO(card,closeYM);var paid=!!(card.paidMonths&&card.paidMonths[m]);
+        out.push({dueYM:m,dueDate:dd,closeDate:cdate,amount:amt,paid:paid,status:billStatus(dd,paid)});}
+      m=addMonths(m,1);guard++;}
+    return out;
+  }
   function renderCards(){
     var wrap=$("cardsWrap");wrap.innerHTML="";
     var head=document.createElement("div");head.className="dayhead";head.style.margin="6px 0 14px";
-    head.innerHTML='<span>Your cards · '+esc(monthLabel(state.month))+'</span><span></span>';wrap.appendChild(head);
+    head.innerHTML='<span>Your cards</span><span></span>';wrap.appendChild(head);
     if(!state.cards.length){var e=document.createElement("div");e.className="empty";e.innerHTML='<div class="big">No cards yet</div>Add a credit card above to track its statements.';wrap.appendChild(e);}
     state.cards.forEach(function(card){
-      var due=cardStatementDue(card,state.month);var unpaid=cardUnpaid(card,state.month);var paid=!!(card.paidMonths&&card.paidMonths[state.month]);
-      var dd=cardDueDateISO(card,state.month);
-      var stt=due>0?(paid?{cls:"paid",txt:"Paid"}:billStatus(dd,false)):null;
-      var box=document.createElement("div");box.className="cardbox";
+      var unpaid=cardUnpaid(card,state.month);
       var cyc=(card.dueMode==="afterCutoff")?('Cuts day '+card.cutoffDay+' &middot; due '+(card.dueDays||0)+' days after cutoff'):('Cuts day '+card.cutoffDay+' &middot; due day '+card.dueDay+' '+(card.dueOffset?'(next month)':'(same month)'));
-      box.innerHTML='<div class="ctop"><div><div class="cname">'+esc(card.name)+(stt?' <span class="badge '+stt.cls+'">'+stt.txt+'</span>':'')+'</div><div class="ccycle">'+cyc+'</div></div><button class="del" data-del="'+card.id+'" title="Delete card" style="font-size:20px;background:none;border:none;cursor:pointer;color:var(--ink-soft)">&times;</button></div>'+
-        '<div class="cnums"><div class="cnum"><div class="k">Statement due '+monthShort(dd)+' '+(+dd.slice(8,10))+'</div><div class="v due">'+fmt(due)+'</div></div><div class="cnum"><div class="k">Unpaid balance</div><div class="v bal">'+fmt(unpaid)+'</div></div></div>'+
-        '<div class="cactions"><button class="paidtoggle '+(paid?"on":"")+'" data-paid="'+card.id+'" style="border:1px solid var(--rule-strong);background:'+(paid?'var(--green)':'#fff')+';color:'+(paid?'#fff':'var(--ink-soft)')+';cursor:pointer;border-radius:5px;font-family:var(--mono);font-size:11px;text-transform:uppercase;padding:8px 12px">'+(paid?"Statement paid":"Mark statement paid")+'</button><button class="miniedit" data-edit="'+card.id+'">Edit cycle</button></div>';
+      var stmts=cardStatementsWindow(card);
+      var rows=stmts.map(function(s){
+        var cur2=(s.dueYM===state.month)?' style="background:var(--band)"':'';
+        return '<div class="bill"'+cur2+'><div class="due"><div class="d">'+(+s.dueDate.slice(8,10))+'</div><div class="m">'+esc(monthShort(s.dueDate))+'</div></div>'+
+          '<div class="body"><div class="name">Due '+esc(prettyDate(s.dueDate))+'<span class="badge '+s.status.cls+'">'+esc(s.status.txt)+'</span></div><div class="meta">closed '+esc(prettyDate(s.closeDate))+'</div></div>'+
+          '<div class="amt">'+fmt(s.amount)+'</div>'+
+          '<button class="paidtoggle '+(s.paid?"on":"")+'" data-cardpaid="'+card.id+'" data-ym="'+s.dueYM+'">'+(s.paid?"Paid":"Mark paid")+'</button></div>';
+      }).join("");
+      var box=document.createElement("div");box.className="cardbox";
+      box.innerHTML='<div class="ctop"><div><div class="cname">'+esc(card.name)+'</div><div class="ccycle">'+cyc+'</div></div><button class="del" data-del="'+card.id+'" title="Delete card" style="font-size:20px;background:none;border:none;cursor:pointer;color:var(--ink-soft)">&times;</button></div>'+
+        '<div class="cnums"><div class="cnum"><div class="k">Unpaid balance (all months)</div><div class="v bal">'+fmt(unpaid)+'</div></div></div>'+
+        '<div class="k" style="font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin:14px 0 2px">Statements by due date</div>'+
+        (rows||'<div class="empty" style="padding:14px 0">No statements around this time.</div>')+
+        '<div class="cactions" style="margin-top:12px"><button class="miniedit" data-edit="'+card.id+'">Edit cycle</button></div>';
       wrap.appendChild(box);
     });
-    wrap.querySelectorAll("[data-paid]").forEach(function(b){b.addEventListener("click",function(){toggleCardPaid(b.dataset.paid);});});
+    wrap.querySelectorAll("[data-cardpaid]").forEach(function(b){b.addEventListener("click",function(){toggleCardPaidYM(b.dataset.cardpaid,b.dataset.ym);});});
     wrap.querySelectorAll("[data-del]").forEach(function(b){b.addEventListener("click",function(){deleteCard(b.dataset.del);});});
     wrap.querySelectorAll("[data-edit]").forEach(function(b){b.addEventListener("click",function(){editCard(b.dataset.edit);});});
     renderInstallments();
   }
-  async function toggleCardPaid(id){var c=state.cards.find(function(x){return x.id===id;});if(!c)return;c.paidMonths=c.paidMonths||{};if(c.paidMonths[state.month])delete c.paidMonths[state.month];else c.paidMonths[state.month]=true;await saveCards();renderCards();renderHeader();}
+  async function toggleCardPaidYM(id,ym){var c=state.cards.find(function(x){return x.id===id;});if(!c)return;c.paidMonths=c.paidMonths||{};if(c.paidMonths[ym])delete c.paidMonths[ym];else c.paidMonths[ym]=true;await saveCards();renderCards();renderHeader();}
+  async function toggleCardPaid(id){return toggleCardPaidYM(id,state.month);}
   async function deleteCard(id){var c=state.cards.find(function(x){return x.id===id;});if(!c)return;
     var charges=state.purchases.filter(function(p){return p.method===c.name;}).length;
     var inst=state.installments.filter(function(p){return p.cardName===c.name;}).length;
