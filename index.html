@@ -251,6 +251,15 @@
       <div class="stat"><div class="k">Charged to cards</div><div class="v credit" id="sCharged">—</div></div>
     </div>
     <div class="card">
+      <h2 class="tight">What you need to pay in <span id="payMonth"></span></h2>
+      <div class="flow">
+        <div class="flowrow"><span>Bills due (cash)</span><span class="v minus" id="payBills">—</span></div>
+        <div class="flowrow"><span>Card statements due</span><span class="v minus" id="payCards">—</span></div>
+        <div class="flowrow total"><span>Total due this month</span><span class="v" id="payTotal">—</span></div>
+      </div>
+      <div class="subnote" id="payNote"></div>
+    </div>
+    <div class="card">
       <h2 class="tight">Income minus what you paid this month</h2>
       <div class="flow">
         <div class="flowrow"><span>Total income</span><span class="v plus" id="fIncome">—</span></div>
@@ -659,8 +668,14 @@
       cardUnpaidTotal+=cardUnpaid(c,M);
     });
     var moneyOut=cashSpent+billsPaid+cardPaidThisMonth;
+    var cashBillsTotal=sum(bm,function(b){return b.bill.amount;});
+    var cardDueUnpaid=cardDueThisMonth-cardPaidThisMonth;
+    var totalDue=cashBillsTotal+cardDueThisMonth;
+    var remainingDue=billsUnpaid+cardDueUnpaid;
+    var cutoffThisMonth=sum(state.cards,function(c){return cardCycleAmount(c,M);});
     return {income:income,cashSpent:cashSpent,cardCharges:cardCharges,billsPaid:billsPaid,billsUnpaid:billsUnpaid,
             cardPaidThisMonth:cardPaidThisMonth,cardDueThisMonth:cardDueThisMonth,cardUnpaidTotal:cardUnpaidTotal,
+            cashBillsTotal:cashBillsTotal,totalDue:totalDue,remainingDue:remainingDue,cutoffThisMonth:cutoffThisMonth,
             moneyOut:moneyOut,left:income-moneyOut};
   }
   function renderBrand(){
@@ -717,6 +732,15 @@
     $("sIncome").textContent=fmt(c.income);
     $("sCash").textContent=fmt(c.cashSpent);
     $("sCharged").textContent=fmt(c.cardCharges);
+    $("payMonth").textContent=monthLabel(state.month);
+    $("payBills").textContent=fmt(c.cashBillsTotal);
+    $("payCards").textContent=fmt(c.cardDueThisMonth);
+    $("payTotal").textContent=fmt(c.totalDue);
+    var pn=[];
+    if(c.remainingDue<c.totalDue-0.005)pn.push("Already marked paid: "+fmt(c.totalDue-c.remainingDue)+". Still to pay: "+fmt(c.remainingDue)+".");
+    else pn.push("None of this is marked paid yet.");
+    if(c.cutoffThisMonth>0)pn.push("Cutting off in "+monthLabel(state.month)+" (you pay these on their later due dates): "+fmt(c.cutoffThisMonth)+".");
+    $("payNote").innerHTML=pn.map(esc).join("<br>");
     $("fIncome").textContent="+ "+fmt(c.income).replace(/^-/,"");
     $("fCash").textContent="− "+fmt(c.cashSpent).replace(/^-/,"");
     $("fBills").textContent="− "+fmt(c.billsPaid).replace(/^-/,"");
