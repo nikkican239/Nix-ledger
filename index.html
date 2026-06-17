@@ -274,7 +274,9 @@
         <div class="field"><label for="incAmount">Amount</label><div class="amount-wrap"><span class="cur incCur">₱</span><input type="number" id="incAmount" inputmode="decimal" step="0.01" min="0" placeholder="0.00"></div></div>
         <div class="field"><label for="incDate">Date received</label><input type="date" id="incDate"></div>
       </div>
-      <div class="field" style="margin-bottom:16px"><label for="incNote">Note (optional)</label><input type="text" id="incNote" maxlength="80" placeholder="e.g. salary, half payment"></div>
+      <div class="field" style="margin-bottom:14px"><label for="incNote">Note (optional)</label><input type="text" id="incNote" maxlength="80" placeholder="e.g. salary, half payment"></div>
+      <div class="checkrow" style="margin-bottom:6px"><input type="checkbox" id="incRecurring"><label for="incRecurring" style="cursor:pointer">Repeats monthly</label></div>
+      <div class="hsub" style="margin-bottom:16px">Turn this on for income that comes every month, like salary. The day you pick becomes the day it arrives each month, starting that month.</div>
       <input type="hidden" id="incEditId">
       <div class="row-actions"><button class="btn full" id="incSave">Add income</button><button class="btn ghost" id="incCancel" style="display:none">Cancel</button></div>
     </div>
@@ -594,7 +596,16 @@
   function cardPaidInMonth(card,M){return sum(cardCyclesDueInMonth(card,M).filter(function(c){return c.paid;}),function(c){return c.amount;});}
 
   // month-scoped
-  function incomeMonth(){return state.income.filter(function(t){return monthOf(t.date)===state.month;});}
+  function incDay(t){var d=+(t.date||"").slice(8,10);return d>=1?d:1;}
+  function incInstanceDate(t,ym){return ym+"-"+pad2(Math.min(incDay(t),daysInMonth(ym)));}
+  function incomeMonth(){
+    var M=state.month;var out=[];
+    state.income.forEach(function(t){
+      if(t.recurring){var sm=monthOf(t.date||todayISO());if(M>=sm&&(!t.endMonth||M<=t.endMonth)){var inst=Object.create(t);inst.date=incInstanceDate(t,M);inst.recurring=true;inst._id=t.id;out.push(inst);}}
+      else if(monthOf(t.date)===M){out.push(t);}
+    });
+    return out;
+  }
   function purchasesMonth(){return state.purchases.filter(function(t){return monthOf(t.date)===state.month;});}
   function billsMonth(){
     return state.bills.filter(function(b){return b.recurring||b.oneMonth===state.month;}).map(function(b){
@@ -746,7 +757,8 @@
 
   // ---- income ----
   function incomeRow(t){var d=document.createElement("div");d.className="item";
-    d.innerHTML='<div class="mark inc"></div><div class="body"><div class="cat">'+esc(t.source)+'</div><div class="meta">'+esc(dayLabel(t.date))+(t.note?' · '+esc(t.note):'')+'</div></div><div class="val inc">+ '+fmt(t.amount).replace(/^-/,'')+'</div>';
+    var rtag=t.recurring?'<span class="tag">monthly</span>':'';
+    d.innerHTML='<div class="mark inc"></div><div class="body"><div class="cat">'+esc(t.source)+rtag+'</div><div class="meta">'+esc(dayLabel(t.date))+(t.note?' · '+esc(t.note):'')+'</div></div><div class="val inc">+ '+fmt(t.amount).replace(/^-/,'')+'</div>';
     d.addEventListener("click",function(){openDetail("income",t.id);});return d;}
   function renderIncome(){var wrap=$("incomeWrap");var list=incomeMonth().slice().sort(function(a,b){return b.date.localeCompare(a.date)||b.createdAt-a.createdAt;});wrap.innerHTML="";
     var head=document.createElement("div");head.className="dayhead";head.style.marginTop="22px";
@@ -965,7 +977,7 @@
   // ---- detail modal ----
   var detail={kind:null,id:null};
   async function openDetail(kind,id){var t=(kind==="income"?state.income:state.purchases).find(function(x){return x.id===id;});if(!t)return;detail={kind:kind,id:id};
-    if(kind==="income"){$("dTitle").textContent=t.source;$("dMeta").textContent="Income · "+dayLabel(t.date);var a=$("dAmt");a.textContent="+ "+fmt(t.amount).replace(/^-/,"");a.className="bigamt inc";$("dNote").textContent=t.note||"";$("dImgWrap").innerHTML="";}
+    if(kind==="income"){$("dTitle").textContent=t.source;$("dMeta").textContent="Income · "+dayLabel(t.date)+(t.recurring?" · repeats monthly":"");var a=$("dAmt");a.textContent="+ "+fmt(t.amount).replace(/^-/,"");a.className="bigamt inc";$("dNote").textContent=t.note||"";$("dImgWrap").innerHTML="";}
     else{$("dTitle").textContent=t.item||t.category;$("dMeta").textContent="Purchase · "+dayLabel(t.date)+(t.method?" · "+t.method:"")+" · "+t.category;var a2=$("dAmt");a2.textContent="− "+fmt(t.amount).replace(/^-/,"");a2.className="bigamt exp";$("dNote").textContent=t.note||"";
       var iw=$("dImgWrap");iw.innerHTML="";if(t.hasReceipt){iw.innerHTML='<div style="font-family:var(--mono);font-size:11px;color:var(--ink-soft)">Loading receipt…</div>';var data=await Store.get(K_RC(id));iw.innerHTML=data?'<img class="full" src="'+data+'" alt="receipt">':'<div style="color:var(--ink-soft);font-size:13px">Receipt image not found.</div>';}}
     $("detailScrim").classList.add("show");}
@@ -975,14 +987,14 @@
     else{var t=state.purchases.find(function(x){return x.id===detail.id;});state.purchases=state.purchases.filter(function(x){return x.id!==detail.id;});if(t&&t.hasReceipt)await Store.del(K_RC(detail.id));await savePur();renderPurchases();}
     closeDetail();renderHeader();toast("Deleted");}
   function editDetail(){
-    if(detail.kind==="income"){var t=state.income.find(function(x){return x.id===detail.id;});if(!t)return;setView("income");fillSelect($("incSource"),state.settings.sources,t.source);$("incSource").value=t.source;$("incAmount").value=t.amount;$("incDate").value=t.date;$("incNote").value=t.note||"";$("incEditId").value=t.id;$("incTitle").textContent="Edit income";$("incSave").textContent="Update income";$("incCancel").style.display="block";}
+    if(detail.kind==="income"){var t=state.income.find(function(x){return x.id===detail.id;});if(!t)return;setView("income");fillSelect($("incSource"),state.settings.sources,t.source);$("incSource").value=t.source;$("incAmount").value=t.amount;$("incDate").value=t.date;$("incNote").value=t.note||"";$("incRecurring").checked=!!t.recurring;$("incEditId").value=t.id;$("incTitle").textContent="Edit income";$("incSave").textContent="Update income";$("incCancel").style.display="block";}
     else{var p=state.purchases.find(function(x){return x.id===detail.id;});if(!p)return;setView("purchases");$("purItem").value=p.item||"";$("purAmount").value=p.amount;fillSelect($("purMethod"),methodOptions(),p.method);fillSelect($("purCat"),state.settings.cats,p.category);$("purDate").value=p.date;$("purNote").value=p.note||"";$("purEditId").value=p.id;$("purTitle").textContent="Edit purchase";$("purSave").textContent="Update purchase";$("purCancel").style.display="block";state.pendingReceipt="keep";clearReceipt(p.hasReceipt?"Receipt attached. Tap to replace.":"Tap to add a photo of the receipt",false);}
     closeDetail();window.scrollTo({top:0,behavior:"smooth"});}
   function clearReceipt(label,has){$("receiptLabel").textContent=label;$("receiptLabel").style.display="inline";var th=$("receiptThumb");th.style.display="none";th.src="";$("receiptDrop").classList.toggle("has",!!has);$("receiptInput").value="";}
 
   // ---- saves: income / purchase ----
-  function resetIncome(){$("incAmount").value="";$("incNote").value="";$("incDate").value=todayISO();$("incEditId").value="";$("incTitle").textContent="Add income";$("incSave").textContent="Add income";$("incCancel").style.display="none";}
-  async function saveIncome(){var amt=parseFloat($("incAmount").value);if(!(amt>0)){toast("Enter an amount above zero");$("incAmount").focus();return;}var id=$("incEditId").value;var obj={source:$("incSource").value,amount:amt,date:$("incDate").value||todayISO(),note:$("incNote").value.trim()};
+  function resetIncome(){$("incAmount").value="";$("incNote").value="";$("incDate").value=todayISO();$("incRecurring").checked=false;$("incEditId").value="";$("incTitle").textContent="Add income";$("incSave").textContent="Add income";$("incCancel").style.display="none";}
+  async function saveIncome(){var amt=parseFloat($("incAmount").value);if(!(amt>0)){toast("Enter an amount above zero");$("incAmount").focus();return;}var id=$("incEditId").value;var obj={source:$("incSource").value,amount:amt,date:$("incDate").value||todayISO(),note:$("incNote").value.trim(),recurring:$("incRecurring").checked};
     if(id){var t=state.income.find(function(x){return x.id===id;});if(t)Object.assign(t,obj);toast("Income updated");}else{obj.id=uid();obj.createdAt=Date.now();state.income.push(obj);toast("Income added");}
     await saveInc();resetIncome();renderIncome();renderHeader();}
   function resetPurchase(){$("purItem").value="";$("purAmount").value="";$("purDate").value=todayISO();$("purNote").value="";$("purEditId").value="";$("purTitle").textContent="Add a purchase";$("purSave").textContent="Add purchase";$("purCancel").style.display="none";state.pendingReceipt=null;clearReceipt("Tap to add a photo of the receipt",false);}
