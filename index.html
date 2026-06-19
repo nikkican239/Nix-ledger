@@ -216,6 +216,26 @@
   .authswitch a{color:var(--red);cursor:pointer;font-size:13px;text-decoration:underline}
   .author{text-align:center;color:var(--ink-soft);font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin:16px 0 10px}
   .authmsg{margin-top:14px;font-size:13px;color:var(--ink-soft);text-align:center;line-height:1.5}
+  .hero{background:linear-gradient(160deg,#fff,#FCEEF1);border:1px solid var(--rule-strong)}
+  .hero .herok{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft)}
+  .hero .herov{font-family:var(--mono);font-weight:700;font-size:34px;line-height:1.1;margin-top:4px}
+  .hero .herov.pos{color:var(--green)} .hero .herov.neg{color:var(--red)}
+  .herostats{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+  .herostats>div{flex:1;min-width:90px;background:#fff;border:1px solid var(--rule);border-radius:8px;padding:9px 11px}
+  .herostats .hk{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft)}
+  .herostats .hv{font-family:var(--mono);font-size:16px;font-weight:600;margin-top:3px;display:block}
+  .herostats .hv.inc{color:var(--green)} .herostats .hv.exp{color:var(--red)} .herostats .hv.credit{color:var(--blue)}
+  .heropay{margin-top:14px;padding-top:13px;border-top:1px solid var(--rule);font-size:13.5px;color:var(--ink);line-height:1.5}
+  .heropay b{font-family:var(--mono)}
+  .detailtoggle{display:block;width:100%;background:none;border:1px dashed var(--rule-strong);color:var(--ink-soft);border-radius:8px;padding:11px;cursor:pointer;font-family:var(--mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:14px}
+  .detailtoggle:hover{color:var(--red);border-color:var(--red)}
+  .fab{position:fixed;right:20px;bottom:22px;width:58px;height:58px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:30px;line-height:1;cursor:pointer;box-shadow:0 10px 26px rgba(192,67,107,.45);z-index:60}
+  .fab:active{transform:scale(.94)}
+  .fabmenu{position:fixed;right:20px;bottom:90px;background:#fff;border:1px solid var(--rule-strong);border-radius:12px;box-shadow:0 16px 40px rgba(90,40,60,.22);overflow:hidden;z-index:60;min-width:190px}
+  .fabmenu button{display:block;width:100%;text-align:left;background:none;border:none;border-bottom:1px solid var(--rule);padding:13px 18px;font-size:15px;color:var(--ink);cursor:pointer;font-family:var(--sans)}
+  .fabmenu button:last-child{border-bottom:none}
+  .fabmenu button:hover{background:var(--paper);color:var(--red)}
+  .fabback{position:fixed;inset:0;z-index:59;display:none}
 </style>
 </head>
 <body>
@@ -231,7 +251,7 @@
   <div class="warn" id="warn">This browser is blocking local storage (often private/incognito mode). Entries will stay only until you close the tab. Switch to a normal window to keep them, and use Download backup before closing.</div>
 
   <nav class="tabs">
-    <button data-view="summary" class="active">Summary</button>
+    <button data-view="summary" class="active">Home</button>
     <button data-view="income">Income</button>
     <button data-view="purchases">Purchases</button>
     <button data-view="cards">Cards</button>
@@ -245,33 +265,41 @@
 
   <!-- SUMMARY -->
   <section id="view-summary">
-    <div class="stat3" style="margin-bottom:18px">
-      <div class="stat"><div class="k">Income</div><div class="v inc" id="sIncome">—</div></div>
-      <div class="stat"><div class="k">Cash spent</div><div class="v exp" id="sCash">—</div></div>
-      <div class="stat"><div class="k">Charged to cards</div><div class="v credit" id="sCharged">—</div></div>
-    </div>
-    <div class="card">
-      <h2 class="tight">What you need to pay in <span id="payMonth"></span></h2>
-      <div class="flow">
-        <div class="flowrow"><span>Bills due (cash)</span><span class="v minus" id="payBills">—</span></div>
-        <div class="flowrow"><span>Card statements due</span><span class="v minus" id="payCards">—</span></div>
-        <div class="flowrow total"><span>Total due this month</span><span class="v" id="payTotal">—</span></div>
+    <div class="hero card" style="margin-bottom:14px">
+      <div class="herok">Left to spend in <span id="heroMonth"></span></div>
+      <div class="herov" id="heroLeft">—</div>
+      <div class="herostats">
+        <div><span class="hk">Income</span><span class="hv inc" id="sIncome">—</span></div>
+        <div><span class="hk">Spent (cash)</span><span class="hv exp" id="sCash">—</span></div>
+        <div><span class="hk">On cards</span><span class="hv credit" id="sCharged">—</span></div>
       </div>
-      <div class="subnote" id="payNote"></div>
+      <div class="heropay" id="heroPay"></div>
     </div>
-    <div class="card">
-      <h2 class="tight">Income minus what you paid this month</h2>
-      <div class="flow">
-        <div class="flowrow"><span>Total income</span><span class="v plus" id="fIncome">—</span></div>
-        <div class="flowrow"><span>Less cash spent</span><span class="v minus" id="fCash">—</span></div>
-        <div class="flowrow"><span>Less bills paid</span><span class="v minus" id="fBills">—</span></div>
-        <div class="flowrow"><span>Less card statements paid</span><span class="v minus" id="fCardPaid">—</span></div>
-        <div class="flowrow total"><span>Left this month</span><span class="v left" id="fLeft">—</span></div>
+    <div class="card"><h2 class="tight">Coming up</h2><div class="hsub" style="margin-top:-2px">What's still to pay in <span id="cuMonth"></span>.</div><div id="upcoming"></div></div>
+    <button class="detailtoggle" id="sumDetailBtn">Show details ▾</button>
+    <div id="sumDetails" style="display:none">
+      <div class="card">
+        <h2 class="tight">What you need to pay in <span id="payMonth"></span></h2>
+        <div class="flow">
+          <div class="flowrow"><span>Bills due (cash)</span><span class="v minus" id="payBills">—</span></div>
+          <div class="flowrow"><span>Card statements due</span><span class="v minus" id="payCards">—</span></div>
+          <div class="flowrow total"><span>Total due this month</span><span class="v" id="payTotal">—</span></div>
+        </div>
+        <div class="subnote" id="payNote"></div>
       </div>
-      <div class="subnote" id="commitNote"></div>
+      <div class="card">
+        <h2 class="tight">Income minus what you paid this month</h2>
+        <div class="flow">
+          <div class="flowrow"><span>Total income</span><span class="v plus" id="fIncome">—</span></div>
+          <div class="flowrow"><span>Less cash spent</span><span class="v minus" id="fCash">—</span></div>
+          <div class="flowrow"><span>Less bills paid</span><span class="v minus" id="fBills">—</span></div>
+          <div class="flowrow"><span>Less card statements paid</span><span class="v minus" id="fCardPaid">—</span></div>
+          <div class="flowrow total"><span>Left this month</span><span class="v left" id="fLeft">—</span></div>
+        </div>
+        <div class="subnote" id="commitNote"></div>
+      </div>
+      <div class="card"><h2 class="tight">Spending by category</h2><div class="hsub" style="margin-top:-2px">Purchases dated this month, plus bills paid.</div><div id="catBars"></div></div>
     </div>
-    <div class="card"><h2 class="tight">Spending by category</h2><div class="hsub" style="margin-top:-2px">Purchases dated this month, plus bills paid.</div><div id="catBars"></div></div>
-    <div class="card"><h2 class="tight">Coming up</h2><div class="hsub" style="margin-top:-2px">Unpaid bills and card statements due in <span id="cuMonth"></span>.</div><div id="upcoming"></div></div>
   </section>
 
   <!-- INCOME -->
@@ -309,8 +337,8 @@
       <div class="field" style="margin-bottom:14px"><label for="purNote">Note (optional)</label><input type="text" id="purNote" maxlength="120" placeholder="e.g. monthly groceries, gift for Mama"></div>
       <div class="field" style="margin-bottom:16px">
         <label>Receipt photo (optional)</label>
-        <div class="receipt-drop" id="receiptDrop"><span id="receiptLabel">Tap to add a photo of the receipt</span><img id="receiptThumb" class="receipt-thumb" style="display:none" alt="receipt preview"></div>
-        <input type="file" id="receiptInput" accept="image/*" capture="environment" style="display:none">
+        <div class="receipt-drop" id="receiptDrop"><span id="receiptLabel">Tap to take a photo or choose from your library</span><img id="receiptThumb" class="receipt-thumb" style="display:none" alt="receipt preview"></div>
+        <input type="file" id="receiptInput" accept="image/*" style="display:none">
       </div>
       <input type="hidden" id="purEditId">
       <div class="row-actions"><button class="btn full" id="purSave">Add purchase</button><button class="btn ghost" id="purCancel" style="display:none">Cancel</button></div>
@@ -435,6 +463,15 @@
     </div>
     <div id="savingsWrap"></div>
   </section>
+  <div class="fabback" id="fabBack"></div>
+  <div class="fabmenu" id="fabMenu" style="display:none">
+    <button data-add="purchases">Add a purchase</button>
+    <button data-add="income">Add income</button>
+    <button data-add="bills">Add a bill</button>
+    <button data-add="cards">Add a card</button>
+    <button data-add="savings">Add to savings</button>
+  </div>
+  <button class="fab" id="fab" title="Add something">+</button>
 </div>
 
 <!-- income/purchase detail modal -->
@@ -731,6 +768,12 @@
   function gotoDue(type,month){state.month=month;$("monthPick").value=month;renderHeader();setView(type==="card"?"cards":"bills");}
   function renderSummary(){
     var c=computeMonth();
+    $("heroMonth").textContent=monthLabel(state.month);
+    var hl=$("heroLeft");hl.textContent=fmt(c.left);hl.className="herov "+(c.left>=0?"pos":"neg");
+    var hp;
+    if(c.totalDue>0){hp="You have <b>"+fmt(c.totalDue)+"</b> to pay this month";hp+=(c.remainingDue<c.totalDue-0.005)?(", <b>"+fmt(c.remainingDue)+"</b> still unpaid."):", all marked paid.";}
+    else{hp="Nothing due to pay this month.";}
+    $("heroPay").innerHTML=hp;
     $("sIncome").textContent=fmt(c.income);
     $("sCash").textContent=fmt(c.cashSpent);
     $("sCharged").textContent=fmt(c.cardCharges);
@@ -827,7 +870,7 @@
     return d;}
   function cardDueRow(card,cyc){var dd=cyc.dueDate;var day=+dd.slice(8,10);var st=billStatus(dd,false);
     var d=document.createElement("div");d.className="bill";
-    d.innerHTML='<div class="due"><div class="d">'+day+'</div><div class="m">'+esc(monthShort(dd))+'</div></div><div class="body"><div class="name">'+esc(card.name)+' statement<span class="badge '+st.cls+'">'+st.txt+'</span></div><div class="meta">credit card &middot; closed '+esc(prettyDate(cutoffDateISO(card,cyc.closeYM)))+'</div></div><div class="amt">'+fmt(cyc.amount)+'</div>';
+    d.innerHTML='<div class="due"><div class="d">'+day+'</div><div class="m">'+esc(monthShort(dd))+'</div></div><div class="body"><div class="name">'+esc(card.name)+' statement<span class="badge '+st.cls+'">'+st.txt+'</span></div><div class="meta">credit card &middot; pay by '+esc(prettyDate(dd))+'</div></div><div class="amt">'+fmt(cyc.amount)+'</div>';
     return d;}
   function renderBills(){var wrap=$("billsWrap");var list=billsMonth();wrap.innerHTML="";
     var cash=list.filter(function(b){return !isCredit(b.bill.method);});
@@ -868,7 +911,7 @@
     var wrap=$("cardsWrap");wrap.innerHTML="";
     var byCut=(state.cardView==="cutoff");
     var ctrl=document.createElement("div");ctrl.style.cssText="display:flex;gap:10px;align-items:center;margin:6px 0 14px;flex-wrap:wrap";
-    ctrl.innerHTML='<span style="font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft)">View by</span><div class="seg" style="width:auto"><button id="cvDue" class="'+(byCut?"":"on-inc2")+'" style="flex:0 0 auto;padding:7px 14px">Due date</button><button id="cvCut" class="'+(byCut?"on-inc2":"")+'" style="flex:0 0 auto;padding:7px 14px">Cutoff month</button></div>';
+    ctrl.innerHTML='<span style="font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft)">Show</span><div class="seg" style="width:auto"><button id="cvDue" class="'+(byCut?"":"on-inc2")+'" style="flex:0 0 auto;padding:7px 14px">When to pay</button><button id="cvCut" class="'+(byCut?"on-inc2":"")+'" style="flex:0 0 auto;padding:7px 14px">When it closes</button></div>';
     wrap.appendChild(ctrl);
     if(!state.cards.length){var e=document.createElement("div");e.className="empty";e.innerHTML='<div class="big">No cards yet</div>Add a credit card above to track its statements.';wrap.appendChild(e);}
     state.cards.forEach(function(card){
@@ -877,8 +920,8 @@
       var stmts=cardStatementsWindow(card);
       var rows=stmts.map(function(s){
         var pDate=byCut?s.closeDate:s.dueDate;
-        var pLabel=byCut?('Cutoff '+prettyDate(s.closeDate)):('Due '+prettyDate(s.dueDate));
-        var sec=byCut?('due '+prettyDate(s.dueDate)):('closed '+prettyDate(s.closeDate));
+        var pLabel=byCut?('Closes '+prettyDate(s.closeDate)):('Pay by '+prettyDate(s.dueDate));
+        var sec=byCut?('pay by '+prettyDate(s.dueDate)):('covers spending up to '+prettyDate(s.closeDate));
         var isCur=byCut?(s.closeYM===state.month):(s.dueYM===state.month);
         var key=card.id+"::"+s.closeYM;var open=!!state.cardExp[key];
         var items=cardCycleItems(card,s.closeYM);
@@ -891,8 +934,8 @@
       }).join("");
       var box=document.createElement("div");box.className="cardbox";
       box.innerHTML='<div class="ctop"><div><div class="cname">'+esc(card.name)+'</div><div class="ccycle">'+cyc+'</div></div><button class="del" data-del="'+card.id+'" title="Delete card" style="font-size:20px;background:none;border:none;cursor:pointer;color:var(--ink-soft)">&times;</button></div>'+
-        '<div class="cnums"><div class="cnum"><div class="k">Unpaid balance (all months)</div><div class="v bal">'+fmt(unpaid)+'</div></div></div>'+
-        '<div class="k" style="font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin:14px 0 2px">Statements by '+(byCut?'cutoff month':'due date')+'</div>'+
+        '<div class="cnums"><div class="cnum"><div class="k">Total still owed on this card</div><div class="v bal">'+fmt(unpaid)+'</div></div></div>'+
+        '<div class="k" style="font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin:14px 0 2px">Your statements'+(byCut?' (by closing date)':' (by pay-by date)')+'</div>'+
         (rows||'<div class="empty" style="padding:14px 0">No statements around this time.</div>')+
         '<div class="cactions" style="margin-top:12px"><button class="miniedit" data-edit="'+card.id+'">Edit cycle</button></div>';
       wrap.appendChild(box);
@@ -1118,6 +1161,11 @@
 
   function wire(){
     document.querySelectorAll("nav.tabs button").forEach(function(b){b.addEventListener("click",function(){setView(b.dataset.view);});});
+    $("sumDetailBtn").addEventListener("click",function(){var d=$("sumDetails");var open=d.style.display!=="none";d.style.display=open?"none":"block";$("sumDetailBtn").textContent=open?"Show details \u25be":"Hide details \u25b4";});
+    function closeFab(){$("fabMenu").style.display="none";$("fabBack").style.display="none";}
+    $("fab").addEventListener("click",function(){var open=$("fabMenu").style.display!=="none";if(open){closeFab();}else{$("fabMenu").style.display="block";$("fabBack").style.display="block";}});
+    $("fabBack").addEventListener("click",closeFab);
+    $("fabMenu").querySelectorAll("[data-add]").forEach(function(b){b.addEventListener("click",function(){closeFab();setView(b.dataset.add);window.scrollTo({top:0,behavior:"smooth"});});});
     $("monthPick").addEventListener("change",function(){state.month=$("monthPick").value||thisMonth();renderHeader();setView(document.querySelector("nav.tabs button.active").dataset.view);});
     $("incSave").addEventListener("click",saveIncome);$("incCancel").addEventListener("click",resetIncome);
     $("purSave").addEventListener("click",savePurchase);$("purCancel").addEventListener("click",resetPurchase);
