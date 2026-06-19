@@ -227,6 +227,9 @@
   .herostats .hv.inc{color:var(--green)} .herostats .hv.exp{color:var(--red)} .herostats .hv.credit{color:var(--blue)}
   .heropay{margin-top:14px;padding-top:13px;border-top:1px solid var(--rule);font-size:13.5px;color:var(--ink);line-height:1.5}
   .heropay b{font-family:var(--mono)}
+  .heroproj{margin-top:10px;font-size:13.5px;color:var(--ink);line-height:1.5}
+  .heroproj .pv{font-family:var(--mono);font-weight:700}
+  .heroproj .pv.pos{color:var(--green)} .heroproj .pv.neg{color:var(--red)}
   .detailtoggle{display:block;width:100%;background:none;border:1px dashed var(--rule-strong);color:var(--ink-soft);border-radius:8px;padding:11px;cursor:pointer;font-family:var(--mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:14px}
   .detailtoggle:hover{color:var(--red);border-color:var(--red)}
   .fab{position:fixed;right:20px;bottom:22px;width:58px;height:58px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:30px;line-height:1;cursor:pointer;box-shadow:0 10px 26px rgba(192,67,107,.45);z-index:60}
@@ -274,6 +277,7 @@
         <div><span class="hk">On cards</span><span class="hv credit" id="sCharged">—</span></div>
       </div>
       <div class="heropay" id="heroPay"></div>
+      <div class="heroproj" id="heroProj"></div>
     </div>
     <div class="card"><h2 class="tight">Coming up</h2><div class="hsub" style="margin-top:-2px">What's still to pay in <span id="cuMonth"></span>.</div><div id="upcoming"></div></div>
     <button class="detailtoggle" id="sumDetailBtn">Show details ▾</button>
@@ -779,6 +783,9 @@
     }
     else{hp="Nothing due to pay this month.";}
     $("heroPay").innerHTML=hp;
+    var proj=c.left-c.remainingDue;
+    if(c.remainingDue>0.005)$("heroProj").innerHTML='Estimated left after paying what\'s still due: <span class="pv '+(proj>=0?"pos":"neg")+'">'+fmt(proj)+'</span>';
+    else $("heroProj").innerHTML="";
     $("sIncome").textContent=fmt(c.income);
     $("sCash").textContent=fmt(c.cashSpent);
     $("sCharged").textContent=fmt(c.cardCharges);
