@@ -771,7 +771,12 @@
     $("heroMonth").textContent=monthLabel(state.month);
     var hl=$("heroLeft");hl.textContent=fmt(c.left);hl.className="herov "+(c.left>=0?"pos":"neg");
     var hp;
-    if(c.totalDue>0){hp="You have <b>"+fmt(c.totalDue)+"</b> to pay this month";hp+=(c.remainingDue<c.totalDue-0.005)?(", <b>"+fmt(c.remainingDue)+"</b> still unpaid."):", all marked paid.";}
+    if(c.totalDue>0){
+      hp="You have <b>"+fmt(c.totalDue)+"</b> to pay this month";
+      if(c.remainingDue<=0.005)hp+=", all marked paid.";
+      else if(c.remainingDue<c.totalDue-0.005)hp+=", <b>"+fmt(c.remainingDue)+"</b> still unpaid.";
+      else hp+=".";
+    }
     else{hp="Nothing due to pay this month.";}
     $("heroPay").innerHTML=hp;
     $("sIncome").textContent=fmt(c.income);
